@@ -222,6 +222,7 @@ export function useMidiPlayer(id: string | undefined) {
 
       const part = new Tone.Part(
         (t, note: { name: string; duration: number; velocity: number }) => {
+          if (!sampler.loaded || sampler.disposed) return;
           sampler.triggerAttackRelease(
             note.name,
             note.duration,
@@ -319,6 +320,7 @@ export function useMidiPlayer(id: string | undefined) {
 
       const part = new Tone.Part(
         (time, note: { name: string; duration: number; velocity: number }) => {
+          if (!sampler.loaded || sampler.disposed) return;
           sampler.triggerAttackRelease(
             note.name,
             note.duration,
