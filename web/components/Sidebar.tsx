@@ -9,14 +9,18 @@ export default function Sidebar() {
 
   return (
     <aside
-      className="w-64 flex flex-col justify-between py-8 px-5 shrink-0 bg-white/70 backdrop-blur-sm border-r border-sakura-pink/10"
+      /* 1. Changed to bg-transparent so the #FFF6EB background shows through.
+         2. Changed border color to a very soft pink (pink-100).
+      */
+      className="w-64 flex flex-col justify-between py-8 px-5 shrink-0 bg-transparent border-r border-pink-100"
     >
       {/* Logo */}
       <div>
         <div className="flex items-center gap-2 mb-10 px-2">
-          <span className="text-2xl text-amber-500">✦</span>
-          <span className="text-sakura-text-pink text-3xl font-fasthand">
-            Sakura Sonata
+          {/* Matching the star/sparkle color to your logo theme */}
+          <span className="text-2xl text-pink-400">✦</span>
+          <span className="text-[#2D3142] text-3xl font-fasthand">
+            Sonata
           </span>
         </div>
 
@@ -26,8 +30,8 @@ export default function Sidebar() {
             href="/dashboard"
             className={`rounded-2xl px-5 py-3 text-center transition-all duration-200 font-medium text-sm
               ${pathname === "/dashboard"
-                ? "bg-sakura-pink text-white shadow-md"
-                : "bg-white/60 text-sakura-dark/70 hover:bg-white/80"
+                ? "bg-pink-200 text-[#2D3142] shadow-sm" // Matches the active tab in your login form
+                : "bg-white/40 text-slate-500 hover:bg-white/60"
               }`}
           >
             My Sonatas
@@ -35,9 +39,13 @@ export default function Sidebar() {
 
           <Link
             href="/dashboard/new"
-            className="rounded-2xl px-5 py-3 text-center bg-white/60 text-sakura-dark/70 hover:bg-white/80 transition-all duration-200 font-medium text-sm flex items-center justify-center gap-2"
+            className={`rounded-2xl px-5 py-3 text-center transition-all duration-200 font-medium text-sm flex items-center justify-center gap-2
+              ${pathname === "/dashboard/new"
+                ? "bg-pink-200 text-[#2D3142] shadow-sm"
+                : "bg-white/40 text-slate-500 hover:bg-white/60"
+              }`}
           >
-            <span>🎵</span>
+            <span>✿</span>
             New Composition
           </Link>
         </nav>
