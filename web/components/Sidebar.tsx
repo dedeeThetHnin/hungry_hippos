@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { LogoutButton } from "@/components/logout-button";
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -42,13 +43,18 @@ export default function Sidebar() {
         </nav>
       </div>
 
-      {/* Back button */}
-      <button
-        className="w-10 h-10 rounded-full bg-white/60 flex items-center justify-center text-sakura-dark/50 hover:bg-white transition-all duration-200 hover:text-sakura-text-pink"
-        onClick={() => window.history.back()}
-      >
-        ←
-      </button>
+      <div className="flex items-center gap-3">
+        <button
+          className="w-10 h-10 rounded-full bg-white/60 flex items-center justify-center text-sakura-dark/50 hover:bg-white transition-all duration-200 hover:text-sakura-text-pink"
+          onClick={() => window.history.back()}
+        >
+          ←
+        </button>
+        <LogoutButton
+          label="Log out"
+          className="h-10 rounded-full bg-white/60 px-4 text-sakura-dark/70 hover:bg-white hover:text-sakura-text-pink"
+        />
+      </div>
     </aside>
   );
 }
