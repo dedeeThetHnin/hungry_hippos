@@ -6,7 +6,7 @@ import { Trash2, Music, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import PracticeModal from "@/components/PracticeModal";
 import { LogoutButton } from "@/components/logout-button";
-import Sidebar from "@/components/Sidebar";
+import Link from "next/link";
 import { SakuraBackground } from "@/components/SakuraBackground";
 
 const BUCKET = "sheet-music";
@@ -72,25 +72,29 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="relative flex h-screen w-screen overflow-hidden font-inter bg-sakura-bg">
+    <div className="relative flex h-screen w-screen font-inter bg-sakura-bg">
       {/* Sakura petals background (behind everything) */}
       <SakuraBackground />
 
       {/* Foreground content */}
-      <div className="relative z-10 flex h-full w-full overflow-hidden">
-        <Sidebar />
+      <div className="relative z-10 h-full w-full overflow-hidden">
+        <div className="absolute top-6 left-8 right-8 z-20 flex justify-between items-center">
+          <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+            <span className="text-2xl text-pink-400">✦</span>
+            <span className="text-[#2D3142] text-3xl font-fasthand">Sakura Sonata</span>
+          </Link>
+          <LogoutButton
+            label="Log out"
+            className="h-10 rounded-full bg-white/60 px-4 text-sakura-dark/70 hover:bg-white hover:text-sakura-text-pink"
+          />
+        </div>
 
         <main className="flex-1 p-10 pb-32 overflow-y-auto">
-        <div className="flex justify-between items-start mb-8">
-        <div>
-          <h1 className="text-5x l font-bold text-sakura-text-pink mb-2">My Sonatas</h1>
-          <p className="text-sakura-dark/50 text-lg">Your collection of music compositions</p>
-        </div>
-        <LogoutButton
-          label="Log out"
-          className="h-10 rounded-full bg-white/60 px-4 text-sakura-dark/70 hover:bg-white hover:text-sakura-text-pink"
-        />
-      </div>
+          <div className="mb-8 mt-20">
+            <h1 className="text-5xl font-bold text-sakura-text-pink mb-2">My Sonatas</h1>
+            < p className="text-sakura-dark/50 text-lg">Your collection of music compositions</p>
+          </div>
+
 
         {loading ? (
           <div className="text-sakura-dark/60 text-lg">Loading your sonatas...</div>
@@ -157,7 +161,7 @@ export default function DashboardPage() {
 
       <button
         onClick={() => router.push("/dashboard/new")}
-        className="fixed bottom-8 right-8 w-16 h-16 rounded-full bg-sakura-text-pink text-white shadow-lg hover:shadow-xl hover:scale-110 active:scale-95 transition-all duration-200 flex items-center justify-center"
+        className="fixed bottom-8 right-8 z-50 w-16 h-16 rounded-full bg-sakura-text-pink text-white shadow-lg hover:shadow-xl hover:scale-110 active:scale-95 transition-all duration-200 flex items-center justify-center"
         style={{ boxShadow: "0 8px 32px rgba(217, 108, 142, 0.4)" }}
         aria-label="New composition"
         title="New Composition"
