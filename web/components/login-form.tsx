@@ -63,21 +63,32 @@ export function LoginForm({
         <CardHeader className="text-center">
           {/* Tabs UI from your screenshot */}
           <div className="flex bg-[#F3F0F5] rounded-full p-1 mb-6 w-full max-w-[280px] mx-auto">
-            <button className="flex-1 py-2 px-4 rounded-full bg-pink-200 text-sm font-medium">Sign In</button>
-            <Link href="/auth/sign-up" className="flex-1 py-2 px-4 rounded-full text-sm font-medium text-gray-500 hover:text-gray-700">Sign Up</Link>
+            <button className="flex-1 py-2 px-4 rounded-full bg-pink-200 text-sm font-medium">
+              Sign In
+            </button>
+            <Link
+              href="/auth/sign-up"
+              className="flex-1 py-2 px-4 rounded-full text-sm font-medium text-gray-500 hover:text-gray-700"
+            >
+              Sign Up
+            </Link>
           </div>
-          
-          <CardTitle className="text-3xl font-serif text-[#2D3142]">Welcome Back</CardTitle>
+
+          <CardTitle className="text-3xl font-serif text-[#2D3142]">
+            Welcome Back
+          </CardTitle>
           <CardDescription className="text-slate-500">
             Continue your musical journey
           </CardDescription>
         </CardHeader>
-        
+
         <CardContent>
           <form onSubmit={handleLogin}>
             <div className="flex flex-col gap-5">
               <div className="grid gap-2">
-                <Label htmlFor="email" className="text-sm font-semibold ml-1">Email</Label>
+                <Label htmlFor="email" className="text-sm font-semibold ml-1">
+                  Email
+                </Label>
                 <Input
                   id="email"
                   type="email"
@@ -90,7 +101,13 @@ export function LoginForm({
               </div>
               <div className="grid gap-2">
                 <div className="flex items-center">
-                  <Label htmlFor="password" title="Password" className="text-sm font-semibold ml-1">Password</Label>
+                  <Label
+                    htmlFor="password"
+                    title="Password"
+                    className="text-sm font-semibold ml-1"
+                  >
+                    Password
+                  </Label>
                 </div>
                 <Input
                   id="password"
@@ -102,12 +119,14 @@ export function LoginForm({
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
-              
-              {error && <p className="text-xs text-red-400 text-center">{error}</p>}
-              
-              <Button 
-                type="submit" 
-                className="w-full h-12 rounded-xl bg-[#4A4E69] hover:bg-[#3D405B] text-white font-bold transition-all shadow-md mt-2" 
+
+              {error && (
+                <p className="text-xs text-red-400 text-center">{error}</p>
+              )}
+
+              <Button
+                type="submit"
+                className="w-full h-12 rounded-xl bg-[#4A4E69] hover:bg-[#3D405B] text-white font-bold transition-all shadow-md mt-2"
                 disabled={isLoading}
               >
                 {isLoading ? "Signing in..." : "✿ Sign In"}
