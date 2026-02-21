@@ -5,12 +5,13 @@
  * producing a richer, more realistic piano tone than sparse samples.
  */
 
-import { SplendidGrandPiano } from "smplr";
+import { SplendidGrandPiano, Reverb } from "smplr";
 import type { PianoPlayer, PianoPlayerFactory } from "./types";
 
 function createSplendidPiano(audioContext: AudioContext): PianoPlayer {
   let disposed = false;
   const piano = new SplendidGrandPiano(audioContext);
+//   piano.output.addEffect("reverb", new Reverb(audioContext), 0.2);
 
   return {
     loaded: piano.loaded().then(() => {}),

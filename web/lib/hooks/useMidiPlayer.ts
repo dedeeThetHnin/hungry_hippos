@@ -61,6 +61,7 @@ export function useMidiPlayer(
   const [noteCount, setNoteCount] = useState(0);
   const [trackCount, setTrackCount] = useState(0);
   const [activeNotes, setActiveNotes] = useState<string[]>([]);
+  const [midiLoaded, setMidiLoaded] = useState(false);
 
   const pianoRef = useRef<PianoPlayer | null>(null);
   const disposedRef = useRef(false);
@@ -130,20 +131,7 @@ export function useMidiPlayer(
         setNoteCount(totalNotes);
         setTrackCount(midi.tracks.filter((t) => t.notes.length > 0).length);
         setDuration(maxEnd);
-
-        // Create the piano player from the supplied factory
-        const audioContext = Tone.getContext().rawContext as AudioContext;
-        const piano = pianoFactory(audioContext);
-        pianoRef.current = piano;
-        disposedRef.current = false;
-
-        try {
-          await piano.loaded;
-          setLoadState("ready");
-        } catch {
-          setError("Failed to load piano samples.");
-          setLoadState("error");
-        }
+        setMidiLoaded(true);
       } catch (e: any) {
         setError(e?.message ?? "Failed to load tutorial.");
         setLoadState("error");
@@ -153,6 +141,49 @@ export function useMidiPlayer(
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Create (or re-create) the piano player when the factory changes
+  useEffect(() => {
+    if (!midiLoaded) return;
+
+    let cancelled = false;
+
+    async function initPiano() {
+      // Tear down any previous piano & playback
+      stopPlayback();
+      pianoRef.current?.dispose();
+      pianoRef.current = null;
+      setLoadState("loading");
+      setError("");
+
+      try {
+        const audioContext = Tone.getContext().rawContext as AudioContext;
+        const piano = pianoFactory(audioContext);
+        await piano.loaded;
+
+        if (cancelled) {
+          piano.dispose();
+          return;
+        }
+
+        pianoRef.current = piano;
+        disposedRef.current = false;
+        setLoadState("ready");
+      } catch {
+        if (!cancelled) {
+          setError("Failed to load piano samples.");
+          setLoadState("error");
+        }
+      }
+    }
+
+    initPiano();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [midiLoaded, pianoFactory]);
 
   const stopPlayback = useCallback(() => {
     const transport = Tone.getTransport();
