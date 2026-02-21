@@ -38,7 +38,7 @@ export default function TutorialPage() {
 const PIANO_OPTIONS: { value: string; label: string; description: string; factory: PianoPlayerFactory }[] = [
   { value: "splendid", label: "Splendid Grand", description: "Rich SoundFont piano", factory: splendidPiano },
   { value: "salamander", label: "Salamander", description: "Clean sampled piano", factory: salamanderPiano },
-  { value: "soundfont", label: "General MIDI", description: "Soft MusyngKite SoundFont", factory: soundfontPiano },
+  { value: "soundfont", label: "Gentle", description: "Soft MusyngKite SoundFont", factory: soundfontPiano },
 ];
 
 function TutorialContent() {

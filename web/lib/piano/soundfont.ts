@@ -30,7 +30,7 @@ function createSoundfontPiano(audioContext: AudioContext): PianoPlayer {
       if (disposed || !instrument) return;
       const node = instrument.play(note, time, {
         duration,
-        gain: velocity, // soundfont-player gain maps 0–1
+        gain: velocity * 5, // soundfont-player gain maps 0–1 (also give it a 5x boost to match the volume of the other pianos)
       });
       if (node) activeNodes.push(node);
     },

@@ -11,10 +11,9 @@ import type { PianoPlayer, PianoPlayerFactory } from "./types";
 function createSplendidPiano(audioContext: AudioContext): PianoPlayer {
   let disposed = false;
   const piano = new SplendidGrandPiano(audioContext);
-//   piano.output.addEffect("reverb", new Reverb(audioContext), 0.2);
 
   return {
-    loaded: piano.loaded().then(() => {}),
+    loaded: piano.load.then(() => {}),
 
     start({ note, duration, time, velocity }) {
       if (disposed) return;
