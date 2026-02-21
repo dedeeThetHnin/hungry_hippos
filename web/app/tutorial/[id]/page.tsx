@@ -164,7 +164,7 @@ function TutorialContent() {
       >
         {/* Title & metadata */}
         <div className="text-center space-y-2 shrink-0">
-          <div className="flex items-center justify-center gap-3">
+          <div className="flex items-center justify-center gap-3 min-w-0 max-w-full">
             {isFullscreen && (
               <Link
                 href="/dashboard"
@@ -175,9 +175,10 @@ function TutorialContent() {
               </Link>
             )}
             <h1
-              className={`font-serif text-[#2D3142] ${
+              className={`font-serif text-[#2D3142] truncate max-w-full ${
                 isFullscreen ? "text-xl md:text-2xl" : "text-3xl md:text-4xl"
               }`}
+              title={title || undefined}
             >
               {title || "Loading…"}
             </h1>
