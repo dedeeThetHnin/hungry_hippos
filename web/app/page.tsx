@@ -1,20 +1,20 @@
 import { SakuraBackground } from "@/components/SakuraBackground";
 import { LandingPageHeader } from "@/components/LandingPageHeader";
-import { Scan, Eye, Download } from "lucide-react";
+import { Eye, Download, Target } from "lucide-react";
 import Link from "next/link";
 
 const features = [
   {
-    icon: Scan,
-    title: "Smart Score Parsing",
-    description:
-      "Upload any sheet music PDF or image and our AI instantly identifies notes, rhythms, and dynamics with near-perfect accuracy.",
-  },
-  {
     icon: Eye,
     title: "Instant Visualization",
     description:
-      "Watch your sheet music come alive with a real-time interactive piano visualization that follows along note by note.",
+      "Upload any MIDI piano file and watch your music come alive with a real-time interactive piano visualization that follows along note by note.",
+  },
+  {
+    icon: Target,
+    title: "Practice Mode",
+    description:
+      "Learn faster with step-by-step guidance. The app highlights the next notes and waits for you to play before moving on.",
   },
   {
     icon: Download,
@@ -54,8 +54,11 @@ export default function Home() {
                 key={feature.title}
                 className="rounded-2xl bg-white p-8 shadow-md transition-shadow hover:shadow-lg"
               >
-                <feature.icon className="h-10 w-10 text-sakura-pink mb-4" strokeWidth={1.5} />
-                <h3 className="text-lg font-semibold text-sakura-text-pink mb-2">
+                <feature.icon
+                  className="mb-4 h-10 w-10 text-sakura-pink"
+                  strokeWidth={1.5}
+                />
+                <h3 className="mb-2 text-lg font-semibold text-sakura-text-pink">
                   {feature.title}
                 </h3>
                 <p className="text-sm leading-relaxed text-sakura-dark/70">
