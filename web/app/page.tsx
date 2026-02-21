@@ -1,56 +1,74 @@
-import { DeployButton } from "@/components/deploy-button";
-import { EnvVarWarning } from "@/components/env-var-warning";
-import { AuthButton } from "@/components/auth-button";
-import { Hero } from "@/components/hero";
-import { ThemeSwitcher } from "@/components/theme-switcher";
-import { ConnectSupabaseSteps } from "@/components/tutorial/connect-supabase-steps";
-import { SignUpUserSteps } from "@/components/tutorial/sign-up-user-steps";
-import { hasEnvVars } from "@/lib/utils";
+import { SakuraBackground } from "@/components/SakuraBackground";
+import { LandingPageHeader } from "@/components/LandingPageHeader";
+import { Scan, Eye, Download } from "lucide-react";
 import Link from "next/link";
-import { Suspense } from "react";
+
+const features = [
+  {
+    icon: Scan,
+    title: "Smart Score Parsing",
+    description:
+      "Upload any sheet music PDF or image and our AI instantly identifies notes, rhythms, and dynamics with near-perfect accuracy.",
+  },
+  {
+    icon: Eye,
+    title: "Instant Visualization",
+    description:
+      "Watch your sheet music come alive with a real-time interactive piano visualization that follows along note by note.",
+  },
+  {
+    icon: Download,
+    title: "Export Anywhere",
+    description:
+      "Download your visualizations as video tutorials, MIDI files, or share interactive links with students and collaborators.",
+  },
+];
 
 export default function Home() {
   return (
-    <main className="min-h-screen flex flex-col items-center">
-      <div className="flex-1 w-full flex flex-col gap-20 items-center">
-        <nav className="w-full flex justify-center border-b border-b-foreground/10 h-16">
-          <div className="w-full max-w-5xl flex justify-between items-center p-3 px-5 text-sm">
-            <div className="flex gap-5 items-center font-semibold">
-              <Link href={"/"}>Next.js Supabase Starter</Link>
-              <div className="flex items-center gap-2">
-                <DeployButton />
-              </div>
-            </div>
-            {!hasEnvVars ? (
-              <EnvVarWarning />
-            ) : (
-              <Suspense>
-                <AuthButton />
-              </Suspense>
-            )}
-          </div>
-        </nav>
-        <div className="flex-1 flex flex-col gap-20 max-w-5xl p-5">
-          <Hero />
-          <main className="flex-1 flex flex-col gap-6 px-4">
-            <h2 className="font-medium text-xl mb-4">Next steps</h2>
-            {hasEnvVars ? <SignUpUserSteps /> : <ConnectSupabaseSteps />}
-          </main>
-        </div>
+    <main className="relative min-h-screen bg-sakura-bg font-inter">
+      <SakuraBackground />
 
-        <footer className="w-full flex items-center justify-center border-t mx-auto text-center text-xs gap-8 py-16">
-          <p>
-            Powered by{" "}
-            <a
-              href="https://supabase.com/?utm_source=create-next-app&utm_medium=template&utm_term=nextjs"
-              target="_blank"
-              className="font-bold hover:underline"
-              rel="noreferrer"
-            >
-              Supabase
-            </a>
-          </p>
-          <ThemeSwitcher />
+      <div className="relative z-10 flex flex-col items-center">
+        {/* Header */}
+        <LandingPageHeader />
+
+        {/* Hero Section */}
+        <section className="flex flex-col items-center justify-center px-4 pt-24 pb-20 text-center">
+          <h1 className="max-w-3xl text-4xl font-bold leading-tight tracking-tight text-sakura-text-pink sm:text-5xl md:text-6xl">
+            From Sheet Music to Piano in Seconds
+          </h1>
+          <Link
+            href="/auth/sign-up"
+            className="mt-10 inline-block rounded-full bg-sakura-pink px-10 py-4 text-lg font-semibold text-white shadow-lg shadow-sakura-pink/30 transition-all hover:shadow-xl hover:shadow-sakura-pink/40 hover:bg-sakura-pink/90"
+          >
+            Get Started
+          </Link>
+        </section>
+
+        {/* Feature Cards */}
+        <section className="w-full max-w-5xl px-4 pb-24">
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {features.map((feature) => (
+              <div
+                key={feature.title}
+                className="rounded-2xl bg-white p-8 shadow-md transition-shadow hover:shadow-lg"
+              >
+                <feature.icon className="h-10 w-10 text-sakura-pink mb-4" strokeWidth={1.5} />
+                <h3 className="text-lg font-semibold text-sakura-text-pink mb-2">
+                  {feature.title}
+                </h3>
+                <p className="text-sm leading-relaxed text-sakura-dark/70">
+                  {feature.description}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Footer */}
+        <footer className="mt-auto w-full py-8 text-center text-xs text-sakura-dark/40">
+          &copy; 2026 Sakura Sonata. All rights reserved.
         </footer>
       </div>
     </main>
