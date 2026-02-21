@@ -36,40 +36,25 @@ export default function DashboardPage() {
   }, []);
 
   return (
-    <div
-      className="flex h-screen w-screen overflow-hidden font-sans"
-      style={{
-        background:
-          "linear-gradient(135deg, #f9a8c9 0%, #f472b6 50%, #ec4899 100%)",
-      }}
-    >
+    <div className="flex h-screen w-screen overflow-hidden font-inter bg-sakura-bg">
       <Sidebar />
 
       <main className="flex-1 p-10 overflow-y-auto">
         <div className="mb-8">
-          <h1
-            className="text-5xl font-bold text-white mb-2"
-            style={{
-              fontFamily: "'Dancing Script', cursive",
-              textShadow: "0 2px 12px rgba(0,0,0,0.15)",
-            }}
-          >
+          <h1 className="text-5xl font-bold text-sakura-text-pink mb-2">
             My Sonatas
           </h1>
-          <p
-            className="text-pink-100 italic text-lg"
-            style={{ fontFamily: "'Dancing Script', cursive" }}
-          >
+          <p className="text-sakura-dark/50 text-lg">
             Your collection of music compositions
           </p>
         </div>
 
         {loading ? (
-          <div className="text-white text-lg italic" style={{ fontFamily: "'Dancing Script', cursive" }}>
+          <div className="text-sakura-dark/60 text-lg">
             Loading your sonatas...
           </div>
         ) : scores.length === 0 ? (
-          <div className="text-white text-lg italic" style={{ fontFamily: "'Dancing Script', cursive" }}>
+          <div className="text-sakura-dark/60 text-lg">
             No compositions yet. Upload one to get started!
           </div>
         ) : (
@@ -78,19 +63,19 @@ export default function DashboardPage() {
               <div
                 key={score.id}
                 className="rounded-2xl bg-white/80 backdrop-blur-sm p-6 cursor-pointer transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:bg-white"
-                style={{ boxShadow: "0 4px 24px rgba(236, 72, 153, 0.15)" }}
+                style={{ boxShadow: "0 4px 24px rgba(217, 108, 142, 0.12)" }}
               >
                 <div className="flex flex-col h-32 justify-between">
                   <div>
-                    <h3 className="text-lg font-semibold text-pink-700">
+                    <h3 className="text-lg font-semibold text-sakura-text-pink">
                       {score.title || "Untitled"}
                     </h3>
-                    <p className="text-pink-400 text-sm">
+                    <p className="text-sakura-dark/50 text-sm">
                       {score.composer || "Unknown composer"}
                     </p>
                   </div>
                   <div className="flex justify-between items-center">
-                    <p className="text-pink-300 text-xs">
+                    <p className="text-sakura-dark/40 text-xs">
                       {score.created_at
                         ? new Date(score.created_at).toLocaleDateString()
                         : ""}
@@ -114,7 +99,6 @@ export default function DashboardPage() {
         )}
       </main>
 
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600;700&display=swap');`}</style>
     </div>
   );
 }
