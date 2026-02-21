@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import Sidebar from "@/components/Sidebar";
-import { Trash2, Music } from "lucide-react";
+import { Trash2, Music, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import PracticeModal from "@/components/PracticeModal";
+import { LogoutButton } from "@/components/logout-button";
 
 const BUCKET = "sheet-music";
 
@@ -78,11 +78,16 @@ export default function DashboardPage() {
       <div className="relative z-10 flex h-full w-full overflow-hidden">
         <Sidebar />
 
-      <main className="flex-1 p-10 overflow-y-auto">
-        <div className="mb-8">
+        <div className="flex justify-between items-start mb-8">
+        <div>
           <h1 className="text-5xl font-bold text-sakura-text-pink mb-2">My Sonatas</h1>
           <p className="text-sakura-dark/50 text-lg">Your collection of music compositions</p>
         </div>
+        <LogoutButton
+          label="Log out"
+          className="h-10 rounded-full bg-white/60 px-4 text-sakura-dark/70 hover:bg-white hover:text-sakura-text-pink"
+        />
+      </div>
 
         {loading ? (
           <div className="text-sakura-dark/60 text-lg">Loading your sonatas...</div>
@@ -144,6 +149,16 @@ export default function DashboardPage() {
           </div>
         )}
       </main>
+
+      <button
+        onClick={() => router.push("/dashboard/new")}
+        className="fixed bottom-8 right-8 w-16 h-16 rounded-full bg-sakura-text-pink text-white shadow-lg hover:shadow-xl hover:scale-110 active:scale-95 transition-all duration-200 flex items-center justify-center"
+        style={{ boxShadow: "0 8px 32px rgba(217, 108, 142, 0.4)" }}
+        aria-label="New composition"
+        title="New Composition"
+      >
+        <Plus className="w-7 h-7" />
+      </button>
 
       {/* Practice modal */}
       {practiceScore && (
