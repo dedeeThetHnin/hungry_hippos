@@ -3,6 +3,8 @@
 
 An AI-powered music visualization engine that transforms static MIDI and audio files into a blooming, high-fidelity performance.
 
+![Video_Generation_for_Hungry_Hippos (1)](https://github.com/user-attachments/assets/a508fc59-2267-4e23-94e5-aae2d142d0d3)
+
 ## ✦ Inspiration
 Digital music files can feel like invisible data. We wanted to bridge the gap between these static MIDI files and the vibrant, rhythmic energy of a live performance. We took the elegance of Japanese aesthetics and the soul of a piano sonata to create Sakura Sonata—a platform where your digital music doesn't just get played, it blooms.
 

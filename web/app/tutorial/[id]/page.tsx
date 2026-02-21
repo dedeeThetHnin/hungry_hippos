@@ -3,12 +3,23 @@
 import { Suspense, useState, useCallback, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, Loader2, Music, Piano, Maximize2, Minimize2 } from "lucide-react";
+import { ChevronLeft, Loader2, Music, Piano, Maximize2, Minimize2, Volume2 } from "lucide-react";
 import { SakuraBackground } from "@/components/SakuraBackground";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { AudioPlayerTab } from "@/components/AudioPlayerTab";
 import { FallingNotesTab } from "@/components/FallingNotesTab";
 import { useMidiPlayer } from "@/lib/hooks/useMidiPlayer";
+import type { PianoPlayerFactory } from "@/lib/piano";
+import { splendidPiano, salamanderPiano, soundfontPiano } from "@/lib/piano";
 
 export default function TutorialPage() {
   return (
@@ -24,12 +35,51 @@ export default function TutorialPage() {
   );
 }
 
+const PIANO_OPTIONS: { value: string; label: string; description: string; factory: PianoPlayerFactory }[] = [
+  { value: "splendid", label: "Splendid Grand", description: "Rich SoundFont piano", factory: splendidPiano },
+  { value: "salamander", label: "Salamander", description: "Clean sampled piano", factory: salamanderPiano },
+  { value: "soundfont", label: "Gentle", description: "Soft MusyngKite SoundFont", factory: soundfontPiano },
+];
+
 function TutorialContent() {
-  const { id } = useParams<{ id: string }>();
-  const { state, controls } = useMidiPlayer(id);
-  const { loadState, error, title, bpm, noteCount, trackCount, duration } = state;
+  const params = useParams<{ id: string }>();
+  const id = params?.id;
+  const [pianoKey, setPianoKey] = useState("splendid");
+  const pianoFactory = PIANO_OPTIONS.find((o) => o.value === pianoKey)!.factory;
+  const { state, controls } = useMidiPlayer(id, pianoFactory);
+  const { loadState, error, title, bpm, noteCount, trackCount, duration, keySignature, timeSignature } = state;
   const { formatTime } = controls;
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const pianoSwitcherEl = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="flex items-center gap-1.5 rounded-full bg-white/80 backdrop-blur-md border border-pink-100 shadow-sm px-3 py-1.5 text-xs text-slate-500 hover:text-pink-600 hover:border-pink-200 transition-all"
+          title="Switch piano sound"
+        >
+          <Volume2 className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">
+            {PIANO_OPTIONS.find((o) => o.value === pianoKey)?.label}
+          </span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side="top" align="end" className="w-56">
+        <DropdownMenuLabel>Piano Sound</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuRadioGroup value={pianoKey} onValueChange={setPianoKey}>
+          {PIANO_OPTIONS.map((opt) => (
+            <DropdownMenuRadioItem key={opt.value} value={opt.value}>
+              <div>
+                <div className="font-medium">{opt.label}</div>
+                <div className="text-xs text-slate-400">{opt.description}</div>
+              </div>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
   const toggleFullscreen = useCallback(() => {
     setIsFullscreen((prev) => !prev);
@@ -147,7 +197,7 @@ function TutorialContent() {
           {loadState === "ready" && !isFullscreen && (
             <p className="text-sm text-slate-400">
               {trackCount} track{trackCount !== 1 && "s"} · {noteCount} notes ·{" "}
-              {bpm} BPM · {formatTime(duration)}
+              {bpm} BPM · {timeSignature} · {keySignature} · {formatTime(duration)}
             </p>
           )}
         </div>
@@ -199,11 +249,12 @@ function TutorialContent() {
                 state={state}
                 controls={controls}
                 isFullscreen={isFullscreen}
+                pianoSwitcher={pianoSwitcherEl}
               />
             </TabsContent>
 
             <TabsContent value="audio-player" className="mt-4">
-              <AudioPlayerTab state={state} controls={controls} />
+              <AudioPlayerTab state={state} controls={controls} pianoSwitcher={pianoSwitcherEl} />
             </TabsContent>
           </Tabs>
         )}
