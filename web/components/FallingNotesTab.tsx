@@ -106,9 +106,10 @@ interface FallingNotesTabProps {
   state: MidiPlayerState;
   controls: MidiPlayerControls;
   isFullscreen?: boolean;
+  pianoSwitcher?: React.ReactNode;
 }
 
-export function FallingNotesTab({ state, controls, isFullscreen = false }: FallingNotesTabProps) {
+export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSwitcher }: FallingNotesTabProps) {
   const { isPlaying, loadState, duration, progress } = state;
   const { togglePlayback, stopPlayback, seekTo, skip, formatTime, getAllNotes } = controls;
   const progressBarRef = useRef<HTMLDivElement | null>(null);
@@ -529,6 +530,7 @@ export function FallingNotesTab({ state, controls, isFullscreen = false }: Falli
         <span className="text-xs text-slate-400 tabular-nums min-w-[4rem] text-right">
           {formatTime(progress)} / {formatTime(duration)}
         </span>
+        {pianoSwitcher && <div className="ml-1">{pianoSwitcher}</div>}
       </div>
     </div>
   );

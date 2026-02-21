@@ -7,9 +7,10 @@ import type { MidiPlayerState, MidiPlayerControls } from "@/lib/hooks/useMidiPla
 interface AudioPlayerTabProps {
   state: MidiPlayerState;
   controls: MidiPlayerControls;
+  pianoSwitcher?: React.ReactNode;
 }
 
-export function AudioPlayerTab({ state, controls }: AudioPlayerTabProps) {
+export function AudioPlayerTab({ state, controls, pianoSwitcher }: AudioPlayerTabProps) {
   const { isPlaying, progress, duration, activeNotes, loadState } = state;
   const { togglePlayback, stopPlayback, seekTo, skip, formatTime } = controls;
   const barRef = useRef<HTMLDivElement>(null);
@@ -117,6 +118,7 @@ export function AudioPlayerTab({ state, controls }: AudioPlayerTabProps) {
         >
           <Square className="w-4 h-4" />
         </button>
+        {pianoSwitcher && <div className="ml-2">{pianoSwitcher}</div>}
       </div>
 
       {/* Active notes display */}

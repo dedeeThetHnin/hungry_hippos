@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Midi } from "@tonejs/midi";
 import * as Tone from "tone";
+import type { PianoPlayer, PianoPlayerFactory } from "@/lib/piano";
+import { splendidPiano } from "@/lib/piano";
 
 export type LoadState = "loading" | "ready" | "error";
 
@@ -42,10 +44,13 @@ export interface MidiPlayerControls {
 
 export interface MidiPlayerRefs {
   midiRef: React.RefObject<Midi | null>;
-  samplerRef: React.RefObject<Tone.Sampler | null>;
+  pianoRef: React.RefObject<PianoPlayer | null>;
 }
 
-export function useMidiPlayer(id: string | undefined) {
+export function useMidiPlayer(
+  id: string | undefined,
+  pianoFactory: PianoPlayerFactory = splendidPiano,
+) {
   const supabase = useMemo(() => createClient(), []);
 
   const [loadState, setLoadState] = useState<LoadState>("loading");
@@ -58,10 +63,12 @@ export function useMidiPlayer(id: string | undefined) {
   const [noteCount, setNoteCount] = useState(0);
   const [trackCount, setTrackCount] = useState(0);
   const [activeNotes, setActiveNotes] = useState<string[]>([]);
+  const [midiLoaded, setMidiLoaded] = useState(false);
   const [keySignature, setKeySignature] = useState("");
   const [timeSignature, setTimeSignature] = useState("");
 
-  const samplerRef = useRef<Tone.Sampler | null>(null);
+  const pianoRef = useRef<PianoPlayer | null>(null);
+  const disposedRef = useRef(false);
   const partsRef = useRef<Tone.Part[]>([]);
   const progressInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const midiRef = useRef<Midi | null>(null);
@@ -71,7 +78,8 @@ export function useMidiPlayer(id: string | undefined) {
     return () => {
       // eslint-disable-next-line react-hooks/exhaustive-deps
       stopPlayback();
-      samplerRef.current?.dispose();
+      disposedRef.current = true;
+      pianoRef.current?.dispose();
       partsRef.current.forEach((p) => p.dispose());
       Tone.getTransport().cancel();
     };
@@ -139,52 +147,7 @@ export function useMidiPlayer(id: string | undefined) {
         setNoteCount(totalNotes);
         setTrackCount(midi.tracks.filter((t) => t.notes.length > 0).length);
         setDuration(maxEnd);
-
-        const sampler = new Tone.Sampler({
-          urls: {
-            A0: "A0.mp3",
-            C1: "C1.mp3",
-            "D#1": "Ds1.mp3",
-            "F#1": "Fs1.mp3",
-            A1: "A1.mp3",
-            C2: "C2.mp3",
-            "D#2": "Ds2.mp3",
-            "F#2": "Fs2.mp3",
-            A2: "A2.mp3",
-            C3: "C3.mp3",
-            "D#3": "Ds3.mp3",
-            "F#3": "Fs3.mp3",
-            A3: "A3.mp3",
-            C4: "C4.mp3",
-            "D#4": "Ds4.mp3",
-            "F#4": "Fs4.mp3",
-            A4: "A4.mp3",
-            C5: "C5.mp3",
-            "D#5": "Ds5.mp3",
-            "F#5": "Fs5.mp3",
-            A5: "A5.mp3",
-            C6: "C6.mp3",
-            "D#6": "Ds6.mp3",
-            "F#6": "Fs6.mp3",
-            A6: "A6.mp3",
-            C7: "C7.mp3",
-            "D#7": "Ds7.mp3",
-            "F#7": "Fs7.mp3",
-            A7: "A7.mp3",
-            C8: "C8.mp3",
-          },
-          release: 1,
-          baseUrl: "https://tonejs.github.io/audio/salamander/",
-          onload: () => {
-            setLoadState("ready");
-          },
-          onerror: () => {
-            setError("Failed to load piano samples.");
-            setLoadState("error");
-          },
-        }).toDestination();
-
-        samplerRef.current = sampler;
+        setMidiLoaded(true);
       } catch (e: any) {
         setError(e?.message ?? "Failed to load tutorial.");
         setLoadState("error");
@@ -194,6 +157,49 @@ export function useMidiPlayer(id: string | undefined) {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Create (or re-create) the piano player when the factory changes
+  useEffect(() => {
+    if (!midiLoaded) return;
+
+    let cancelled = false;
+
+    async function initPiano() {
+      // Tear down any previous piano & playback
+      stopPlayback();
+      pianoRef.current?.dispose();
+      pianoRef.current = null;
+      setLoadState("loading");
+      setError("");
+
+      try {
+        const audioContext = Tone.getContext().rawContext as AudioContext;
+        const piano = pianoFactory(audioContext);
+        await piano.loaded;
+
+        if (cancelled) {
+          piano.dispose();
+          return;
+        }
+
+        pianoRef.current = piano;
+        disposedRef.current = false;
+        setLoadState("ready");
+      } catch {
+        if (!cancelled) {
+          setError("Failed to load piano samples.");
+          setLoadState("error");
+        }
+      }
+    }
+
+    initPiano();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [midiLoaded, pianoFactory]);
 
   const stopPlayback = useCallback(() => {
     const transport = Tone.getTransport();
@@ -225,8 +231,8 @@ export function useMidiPlayer(id: string | undefined) {
    */
   function rescheduleFrom(time: number) {
     const midi = midiRef.current;
-    const sampler = samplerRef.current;
-    if (!midi || !sampler) return;
+    const piano = pianoRef.current;
+    if (!midi || !piano) return;
 
     const transport = Tone.getTransport();
     transport.cancel();
@@ -238,12 +244,13 @@ export function useMidiPlayer(id: string | undefined) {
 
       const part = new Tone.Part(
         (t, note: { name: string; duration: number; velocity: number }) => {
-          sampler.triggerAttackRelease(
-            note.name,
-            note.duration,
-            t,
-            note.velocity
-          );
+          if (disposedRef.current) return;
+          piano.start({
+            note: note.name,
+            time: t,
+            duration: note.duration,
+            velocity: note.velocity,
+          });
           setActiveNotes((prev) => [...new Set([...prev, note.name])]);
           setTimeout(() => {
             setActiveNotes((prev) => prev.filter((n) => n !== note.name));
@@ -273,7 +280,7 @@ export function useMidiPlayer(id: string | undefined) {
       const wasPlaying = transport.state === "started";
 
       // Release any ringing notes
-      samplerRef.current?.releaseAll();
+      pianoRef.current?.stop();
       setActiveNotes([]);
 
       transport.pause();
@@ -315,8 +322,8 @@ export function useMidiPlayer(id: string | undefined) {
     await Tone.start();
 
     const midi = midiRef.current;
-    const sampler = samplerRef.current;
-    if (!midi || !sampler) return;
+    const piano = pianoRef.current;
+    if (!midi || !piano) return;
 
     if (transport.state === "paused") {
       transport.start();
@@ -335,12 +342,13 @@ export function useMidiPlayer(id: string | undefined) {
 
       const part = new Tone.Part(
         (time, note: { name: string; duration: number; velocity: number }) => {
-          sampler.triggerAttackRelease(
-            note.name,
-            note.duration,
-            time,
-            note.velocity
-          );
+          if (disposedRef.current) return;
+          piano.start({
+            note: note.name,
+            time: time,
+            duration: note.duration,
+            velocity: note.velocity,
+          });
           setActiveNotes((prev) => [...new Set([...prev, note.name])]);
           setTimeout(() => {
             setActiveNotes((prev) => prev.filter((n) => n !== note.name));
@@ -418,7 +426,7 @@ export function useMidiPlayer(id: string | undefined) {
     },
     refs: {
       midiRef,
-      samplerRef,
+      pianoRef,
     },
   };
 }
