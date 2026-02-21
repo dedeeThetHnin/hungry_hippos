@@ -42,11 +42,12 @@ const PIANO_OPTIONS: { value: string; label: string; description: string; factor
 ];
 
 function TutorialContent() {
-  const { id } = useParams<{ id: string }>();
+  const params = useParams<{ id: string }>();
+  const id = params?.id;
   const [pianoKey, setPianoKey] = useState("splendid");
   const pianoFactory = PIANO_OPTIONS.find((o) => o.value === pianoKey)!.factory;
   const { state, controls } = useMidiPlayer(id, pianoFactory);
-  const { loadState, error, title, bpm, noteCount, trackCount, duration } = state;
+  const { loadState, error, title, bpm, noteCount, trackCount, duration, keySignature, timeSignature } = state;
   const { formatTime } = controls;
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -196,7 +197,7 @@ function TutorialContent() {
           {loadState === "ready" && !isFullscreen && (
             <p className="text-sm text-slate-400">
               {trackCount} track{trackCount !== 1 && "s"} · {noteCount} notes ·{" "}
-              {bpm} BPM · {formatTime(duration)}
+              {bpm} BPM · {timeSignature} · {keySignature} · {formatTime(duration)}
             </p>
           )}
         </div>

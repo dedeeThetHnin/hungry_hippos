@@ -29,6 +29,8 @@ export interface MidiPlayerState {
   noteCount: number;
   trackCount: number;
   activeNotes: string[];
+  keySignature: string;
+  timeSignature: string;
 }
 
 export interface MidiPlayerControls {
@@ -62,6 +64,8 @@ export function useMidiPlayer(
   const [trackCount, setTrackCount] = useState(0);
   const [activeNotes, setActiveNotes] = useState<string[]>([]);
   const [midiLoaded, setMidiLoaded] = useState(false);
+  const [keySignature, setKeySignature] = useState("");
+  const [timeSignature, setTimeSignature] = useState("");
 
   const pianoRef = useRef<PianoPlayer | null>(null);
   const disposedRef = useRef(false);
@@ -116,6 +120,18 @@ export function useMidiPlayer(
         const tempos = midi.header.tempos;
         if (tempos.length > 0) {
           setBpm(Math.round(tempos[0].bpm));
+        }
+
+        const keySigs = midi.header.keySignatures;
+        if (keySigs.length > 0) {
+          const k = keySigs[0];
+          setKeySignature(`${k.key} ${k.scale}`);
+        }
+
+        const timeSigs = midi.header.timeSignatures;
+        if (timeSigs.length > 0) {
+          const t = timeSigs[0].timeSignature;
+          setTimeSignature(`${t[0]}/${t[1]}`);
         }
 
         let totalNotes = 0;
@@ -397,6 +413,8 @@ export function useMidiPlayer(
       noteCount,
       trackCount,
       activeNotes,
+      keySignature,
+      timeSignature,
     },
     controls: {
       togglePlayback,
