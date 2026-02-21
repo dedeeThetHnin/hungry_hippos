@@ -1,9 +1,9 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useState, useCallback, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, Loader2, Music, Piano } from "lucide-react";
+import { ChevronLeft, Loader2, Music, Piano, Maximize2, Minimize2 } from "lucide-react";
 import { SakuraBackground } from "@/components/SakuraBackground";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AudioPlayerTab } from "@/components/AudioPlayerTab";
@@ -29,6 +29,21 @@ function TutorialContent() {
   const { state, controls } = useMidiPlayer(id);
   const { loadState, error, title, bpm, noteCount, trackCount, duration } = state;
   const { formatTime } = controls;
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleFullscreen = useCallback(() => {
+    setIsFullscreen((prev) => !prev);
+  }, []);
+
+  // Escape key exits fullscreen
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsFullscreen(false);
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [isFullscreen]);
 
   // ─── Render ─────────────────────────────────────────────
   if (loadState === "error") {
@@ -53,30 +68,71 @@ function TutorialContent() {
   }
 
   return (
-    <div className="relative min-h-screen w-full bg-[#FFF6EB] flex flex-col items-center overflow-hidden p-6">
+    <div
+      className={`w-full bg-[#FFF6EB] flex flex-col items-center overflow-hidden transition-all duration-300 ${
+        isFullscreen
+          ? "fixed inset-0 z-50 p-2 md:p-4"
+          : "relative min-h-screen p-6"
+      }`}
+    >
       <div className="absolute inset-0 z-0 pointer-events-none">
         <SakuraBackground />
       </div>
 
       {/* Header */}
-      <div className="z-10 w-full max-w-3xl">
-        <Link
-          href="/dashboard"
-          className="inline-flex items-center gap-2 mb-6 text-slate-400 hover:text-pink-400 transition-colors font-medium text-sm group"
-        >
-          <ChevronLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-          Back to My Sonatas
-        </Link>
-      </div>
+      {!isFullscreen && (
+        <div className="z-10 w-full max-w-6xl">
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-2 mb-6 text-slate-400 hover:text-pink-400 transition-colors font-medium text-sm group"
+          >
+            <ChevronLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+            Back to My Sonatas
+          </Link>
+        </div>
+      )}
 
       {/* Main Card */}
-      <div className="z-10 w-full max-w-3xl bg-white/70 backdrop-blur-md rounded-3xl border border-pink-100 p-8 md:p-10 space-y-8">
+      <div
+        className={`z-10 w-full bg-white/70 backdrop-blur-md border border-pink-100 transition-all duration-300 ${
+          isFullscreen
+            ? "max-w-full flex-1 min-h-0 rounded-2xl p-4 md:p-6 flex flex-col gap-4 overflow-hidden"
+            : "max-w-6xl rounded-3xl p-8 md:p-10 space-y-8"
+        }`}
+      >
         {/* Title & metadata */}
-        <div className="text-center space-y-2">
-          <h1 className="text-3xl md:text-4xl font-serif text-[#2D3142]">
-            {title || "Loading…"}
-          </h1>
-          {loadState === "ready" && (
+        <div className="text-center space-y-2 shrink-0">
+          <div className="flex items-center justify-center gap-3">
+            {isFullscreen && (
+              <Link
+                href="/dashboard"
+                className="text-slate-400 hover:text-pink-400 transition-colors"
+                title="Back to My Sonatas"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </Link>
+            )}
+            <h1
+              className={`font-serif text-[#2D3142] ${
+                isFullscreen ? "text-xl md:text-2xl" : "text-3xl md:text-4xl"
+              }`}
+            >
+              {title || "Loading…"}
+            </h1>
+            <button
+              onClick={toggleFullscreen}
+              className="text-slate-400 hover:text-pink-400 transition-colors p-1 rounded-lg hover:bg-pink-50"
+              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              title={isFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen"}
+            >
+              {isFullscreen ? (
+                <Minimize2 className="w-5 h-5" />
+              ) : (
+                <Maximize2 className="w-5 h-5" />
+              )}
+            </button>
+          </div>
+          {loadState === "ready" && !isFullscreen && (
             <p className="text-sm text-slate-400">
               {trackCount} track{trackCount !== 1 && "s"} · {noteCount} notes ·{" "}
               {bpm} BPM · {formatTime(duration)}
@@ -96,8 +152,13 @@ function TutorialContent() {
 
         {/* Tabs */}
         {loadState === "ready" && (
-          <Tabs defaultValue="falling-notes" className="w-full">
-            <TabsList className="w-full justify-center bg-pink-50/80 border border-pink-100 rounded-xl p-1">
+          <Tabs
+            defaultValue="falling-notes"
+            className={`w-full ${
+              isFullscreen ? "flex-1 flex flex-col min-h-0" : ""
+            }`}
+          >
+            <TabsList className="w-full justify-center bg-pink-50/80 border border-pink-100 rounded-xl p-1 shrink-0">
               <TabsTrigger
                 value="falling-notes"
                 className="flex-1 gap-1.5 rounded-lg data-[state=active]:bg-white data-[state=active]:text-pink-600 data-[state=active]:shadow-sm text-slate-500 transition-all text-sm"
@@ -114,11 +175,22 @@ function TutorialContent() {
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="falling-notes" className="mt-6">
-              <FallingNotesTab state={state} controls={controls} />
+            <TabsContent
+              value="falling-notes"
+              className={`${
+                isFullscreen
+                  ? "flex-1 min-h-0 relative overflow-hidden"
+                  : "mt-4"
+              }`}
+            >
+              <FallingNotesTab
+                state={state}
+                controls={controls}
+                isFullscreen={isFullscreen}
+              />
             </TabsContent>
 
-            <TabsContent value="audio-player" className="mt-6">
+            <TabsContent value="audio-player" className="mt-4">
               <AudioPlayerTab state={state} controls={controls} />
             </TabsContent>
           </Tabs>

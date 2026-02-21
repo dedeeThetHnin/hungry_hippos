@@ -27,7 +27,6 @@ function isBlackKey(midiNumber: number): boolean {
  * We compute every white key's sequential index starting from rangeMin's
  * nearest white key.
  */
-
 function buildKeyLayout(rangeMin: number, rangeMax: number) {
   // Expand range to include full white keys that the black key sits between
   const lo = rangeMin;
@@ -106,9 +105,10 @@ const HIT_LINE_COLOR = "rgba(255,126,182,0.45)";
 interface FallingNotesTabProps {
   state: MidiPlayerState;
   controls: MidiPlayerControls;
+  isFullscreen?: boolean;
 }
 
-export function FallingNotesTab({ state, controls }: FallingNotesTabProps) {
+export function FallingNotesTab({ state, controls, isFullscreen = false }: FallingNotesTabProps) {
   const { isPlaying, loadState, duration, progress } = state;
   const { togglePlayback, stopPlayback, formatTime, getAllNotes } = controls;
 
@@ -361,12 +361,22 @@ export function FallingNotesTab({ state, controls }: FallingNotesTabProps) {
   if (loadState !== "ready") return null;
 
   return (
-    <div className="space-y-4">
+    <div
+      className={`${
+        isFullscreen
+          ? "absolute inset-0 flex flex-col gap-3 overflow-hidden"
+          : "space-y-4"
+      }`}
+    >
       {/* Canvas container */}
       <div
         ref={containerRef}
-        className="relative w-full rounded-2xl overflow-hidden border border-pink-200/40"
-        style={{ height: "min(60vh, 520px)" }}
+        className={`relative w-full overflow-hidden ${
+          isFullscreen
+            ? "flex-1 min-h-0 rounded-lg border border-pink-200/20"
+            : "rounded-2xl border border-pink-200/40"
+        }`}
+        style={isFullscreen ? undefined : { height: "min(60vh, 520px)" }}
       >
         <canvas
           ref={canvasRef}
@@ -388,7 +398,7 @@ export function FallingNotesTab({ state, controls }: FallingNotesTabProps) {
       </div>
 
       {/* Controls below canvas */}
-      <div className="flex items-center justify-center gap-4">
+      <div className="flex items-center justify-center gap-4 shrink-0">
         <button
           onClick={togglePlayback}
           className="flex items-center justify-center w-12 h-12 rounded-full bg-pink-400 hover:bg-pink-500 text-white transition-colors shadow-lg hover:shadow-xl"
