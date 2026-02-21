@@ -140,7 +140,7 @@ export default function DashboardPage() {
             {scores.map((score) => (
               <div
                 key={score.id}
-                className="relative rounded-2xl bg-white/80 backdrop-blur-sm p-6 transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:bg-white"
+                className="cursor-pointer relative rounded-2xl bg-white/80 backdrop-blur-sm p-6 transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:bg-white"
                 style={{ boxShadow: "0 4px 24px rgba(217, 108, 142, 0.12)" }}
                 onClick={() => {
                   router.push(`/tutorial/${score.id}`);
