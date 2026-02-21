@@ -1,0 +1,428 @@
+"use client";
+
+import { useEffect, useRef, useCallback, useMemo } from "react";
+import { Play, Pause, Square } from "lucide-react";
+import * as Tone from "tone";
+import type {
+  MidiPlayerState,
+  MidiPlayerControls,
+  NoteEvent,
+} from "@/lib/hooks/useMidiPlayer";
+
+// ── Piano layout helpers ──────────────────────────────────────────────
+
+/** Which pitch classes are black keys (0 = C) */
+const BLACK_PITCH_CLASSES = new Set([1, 3, 6, 8, 10]); // C#, D#, F#, G#, A#
+
+function isBlackKey(midiNumber: number): boolean {
+  return BLACK_PITCH_CLASSES.has(midiNumber % 12);
+}
+
+/**
+ * Returns the index among *white keys only* for midi numbers in the
+ * range [rangeMin, rangeMax]. Black keys sit between white keys so they
+ * don't get their own column — they overlay the gap between two adjacent
+ * white keys.
+ *
+ * We compute every white key's sequential index starting from rangeMin's
+ * nearest white key.
+ */
+
+function buildKeyLayout(rangeMin: number, rangeMax: number) {
+  // Expand range to include full white keys that the black key sits between
+  const lo = rangeMin;
+  const hi = rangeMax;
+
+  // Count white keys in range
+  let whiteCount = 0;
+  for (let m = lo; m <= hi; m++) {
+    if (!isBlackKey(m)) whiteCount++;
+  }
+
+  return { lo, hi, whiteCount };
+}
+
+/**
+ * Given a midi number and the keyboard layout, return the x-centre position
+ * and width of that key relative to the keyboard, normalised to [0, totalWidth].
+ */
+function keyPosition(
+  midi: number,
+  lo: number,
+  hi: number,
+  whiteCount: number,
+  keyboardWidth: number
+) {
+  const whiteKeyWidth = keyboardWidth / whiteCount;
+  const blackKeyWidth = whiteKeyWidth * 0.6;
+
+  // Find which white-key index this midi number (or its neighbours) maps to
+  let whiteIndex = 0;
+  for (let m = lo; m < midi; m++) {
+    if (!isBlackKey(m)) whiteIndex++;
+  }
+
+  if (!isBlackKey(midi)) {
+    // White key — centred in its slot
+    const x = whiteIndex * whiteKeyWidth;
+    return { x, w: whiteKeyWidth, centre: x + whiteKeyWidth / 2 };
+  } else {
+    // Black key — centred on the boundary between the two surrounding white keys
+    // whiteIndex currently points to the white key *after* this black key
+    const x = whiteIndex * whiteKeyWidth - blackKeyWidth / 2;
+    return { x, w: blackKeyWidth, centre: x + blackKeyWidth / 2 };
+  }
+}
+
+// ── Note name helper ──────────────────────────────────────────────────
+
+const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+function midiToNoteName(midi: number): string {
+  const octave = Math.floor(midi / 12) - 1;
+  const note = NOTE_NAMES[midi % 12];
+  return `${note}${octave}`;
+}
+
+// ── Colour helpers ────────────────────────────────────────────────────
+
+/** Map a note's pitch class to a pastel hue so different notes get different
+ *  colours, all within a pink / sakura palette. */
+function noteColor(midi: number, alpha = 1): string {
+  // Rotate hue from pink (330) through reds / magentas
+  const hue = 330 + ((midi % 12) * 25) % 360;
+  return `hsla(${hue % 360}, 80%, 65%, ${alpha})`;
+}
+
+const ACTIVE_KEY_COLOR = "#FF7EB6";
+const WHITE_KEY_COLOR = "#FFFFFF";
+const BLACK_KEY_COLOR = "#2D3142";
+const KEY_BORDER_COLOR = "#CBD5E1";
+const CANVAS_BG = "#1a1028";
+const HIT_LINE_COLOR = "rgba(255,126,182,0.45)";
+
+// ── Component ─────────────────────────────────────────────────────────
+
+interface FallingNotesTabProps {
+  state: MidiPlayerState;
+  controls: MidiPlayerControls;
+}
+
+export function FallingNotesTab({ state, controls }: FallingNotesTabProps) {
+  const { isPlaying, loadState, duration, progress } = state;
+  const { togglePlayback, stopPlayback, formatTime, getAllNotes } = controls;
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const rafRef = useRef<number>(0);
+  const notesCache = useRef<NoteEvent[]>([]);
+
+  // How many seconds of upcoming notes are visible above the hit line
+  const LOOK_AHEAD = 4; // seconds visible above hit‑line
+  const KEYBOARD_HEIGHT_RATIO = 0.15; // keyboard is 15% of canvas height
+  const BLACK_KEY_HEIGHT_RATIO = 0.6; // black keys are 60% of white key height
+  const MIN_BAR_PX = 6; // minimum height so tiny notes are still visible
+
+  // Precompute note data when available
+  const layout = useMemo(() => {
+    const notes = getAllNotes();
+    notesCache.current = notes;
+    if (notes.length === 0) return null;
+
+    let minMidi = 127;
+    let maxMidi = 0;
+    for (const n of notes) {
+      if (n.midi < minMidi) minMidi = n.midi;
+      if (n.midi > maxMidi) maxMidi = n.midi;
+    }
+
+    // Pad by a few semitones so edge notes don't sit right at the boundary
+    minMidi = Math.max(21, minMidi - 2);
+    maxMidi = Math.min(108, maxMidi + 2);
+
+    // Expand to nearest white key boundaries
+    while (isBlackKey(minMidi)) minMidi--;
+    while (isBlackKey(maxMidi)) maxMidi++;
+
+    const kb = buildKeyLayout(minMidi, maxMidi);
+    return { ...kb, minMidi, maxMidi };
+  }, [getAllNotes]);
+
+  // ── Resize observer ─────────────────────────────────────────────────
+  useEffect(() => {
+    const container = containerRef.current;
+    const canvas = canvasRef.current;
+    if (!container || !canvas) return;
+
+    const resize = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = container.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      canvas.style.width = `${rect.width}px`;
+      canvas.style.height = `${rect.height}px`;
+      const ctx = canvas.getContext("2d");
+      if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+
+    const observer = new ResizeObserver(resize);
+    observer.observe(container);
+    resize();
+
+    return () => observer.disconnect();
+  }, []);
+
+  // ── Render loop ─────────────────────────────────────────────────
+
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !layout) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.width / dpr;
+    const H = canvas.height / dpr;
+
+    const kbHeight = H * KEYBOARD_HEIGHT_RATIO;
+    const playAreaHeight = H - kbHeight;
+    const hitY = playAreaHeight; // y where notes "land" on the keyboard
+
+    const currentTime = Tone.getTransport().seconds;
+
+    // Clear
+    ctx.fillStyle = CANVAS_BG;
+    ctx.fillRect(0, 0, W, H);
+
+    const { lo, hi, whiteCount } = layout;
+    const whiteKeyWidth = W / whiteCount;
+
+    // Pixels per second in the falling area
+    const pxPerSec = playAreaHeight / LOOK_AHEAD;
+
+    // ── Draw falling note bars ────────────────────────────────────
+    const notes = notesCache.current;
+    // Also collect which midi keys are currently active for keyboard highlighting
+    const activeKeys = new Set<number>();
+
+    for (const note of notes) {
+      const noteEnd = note.time + note.duration;
+      // Only draw notes that are within visible time window
+      // A note is visible if its bottom edge is above the top of the canvas
+      // and its top edge is below the hit line
+      const barTopTime = note.time;
+      const barBottomTime = noteEnd;
+
+      // Convert time to Y: at currentTime, the hit-line is at hitY
+      // Notes in the future are above (smaller Y), notes in the past are below (larger Y)
+      const barTopY = hitY - (barTopTime - currentTime) * pxPerSec;
+      const barBottomY = hitY - (barBottomTime - currentTime) * pxPerSec;
+
+      // barBottomY is the top of the visual bar (earlier time = higher up)
+      // barTopY is the bottom of the visual bar (later time, so note.time is the start)
+      // Wait — let me reconsider: note.time is when the note starts, noteEnd is when it ends
+      // Start (note.time) should appear at the bottom of the bar (hitting the keyboard)
+      // End (noteEnd) should appear at the top of the bar
+      // Y position: hitY when time == currentTime, and above for future times
+      const yBottom = hitY - (note.time - currentTime) * pxPerSec;
+      const yTop = hitY - (noteEnd - currentTime) * pxPerSec;
+
+      // Cull notes fully off screen
+      if (yBottom < 0 || yTop > H) continue;
+
+      const barHeight = Math.max(MIN_BAR_PX, yBottom - yTop);
+
+      // Check if note is currently playing (for key highlighting)
+      if (currentTime >= note.time && currentTime < noteEnd) {
+        activeKeys.add(note.midi);
+      }
+
+      // Get horizontal position from keyboard layout
+      const pos = keyPosition(note.midi, lo, hi, whiteCount, W);
+
+      // Draw the bar
+      const barX = pos.x + 1; // 1px inset
+      const barW = pos.w - 2; // 2px gap between adjacent bars
+      const radius = Math.min(4, barW / 2, barHeight / 2);
+
+      ctx.fillStyle = noteColor(note.midi, 0.85);
+      ctx.beginPath();
+      ctx.roundRect(barX, yTop, barW, barHeight, radius);
+      ctx.fill();
+
+      // Glow for currently-playing notes
+      if (activeKeys.has(note.midi)) {
+        ctx.shadowColor = ACTIVE_KEY_COLOR;
+        ctx.shadowBlur = 12;
+        ctx.fillStyle = noteColor(note.midi, 1);
+        ctx.beginPath();
+        ctx.roundRect(barX, yTop, barW, barHeight, radius);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+
+      // Label — only if bar is tall enough to fit text
+      if (barHeight > 14 && barW > 18) {
+        const label = midiToNoteName(note.midi);
+        ctx.fillStyle = "rgba(255,255,255,0.9)";
+        ctx.font = `bold ${Math.min(11, barW * 0.45)}px system-ui, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(label, pos.centre, yTop + barHeight / 2, barW - 4);
+      }
+    }
+
+    // ── Hit line ──────────────────────────────────────────────────
+    ctx.fillStyle = HIT_LINE_COLOR;
+    ctx.fillRect(0, hitY - 1, W, 2);
+
+    // ── Draw piano keyboard ───────────────────────────────────────
+
+    // White keys first
+    let wi = 0;
+    for (let m = lo; m <= hi; m++) {
+      if (isBlackKey(m)) continue;
+      const x = wi * whiteKeyWidth;
+      const active = activeKeys.has(m);
+
+      ctx.fillStyle = active ? ACTIVE_KEY_COLOR : WHITE_KEY_COLOR;
+      ctx.fillRect(x, hitY, whiteKeyWidth, kbHeight);
+
+      // Border
+      ctx.strokeStyle = KEY_BORDER_COLOR;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, hitY, whiteKeyWidth, kbHeight);
+
+      // Label on white key
+      if (whiteKeyWidth > 14) {
+        const label = midiToNoteName(m);
+        ctx.fillStyle = active ? "rgba(255,255,255,0.9)" : "rgba(100,100,120,0.5)";
+        ctx.font = `${Math.min(10, whiteKeyWidth * 0.35)}px system-ui, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "bottom";
+        ctx.fillText(label, x + whiteKeyWidth / 2, hitY + kbHeight - 4, whiteKeyWidth - 2);
+      }
+
+      wi++;
+    }
+
+    // Black keys on top
+    for (let m = lo; m <= hi; m++) {
+      if (!isBlackKey(m)) continue;
+      const pos = keyPosition(m, lo, hi, whiteCount, W);
+      const bkHeight = kbHeight * BLACK_KEY_HEIGHT_RATIO;
+      const active = activeKeys.has(m);
+
+      ctx.fillStyle = active ? ACTIVE_KEY_COLOR : BLACK_KEY_COLOR;
+      ctx.beginPath();
+      ctx.roundRect(pos.x, hitY, pos.w, bkHeight, [0, 0, 3, 3]);
+      ctx.fill();
+
+      // Label on black key
+      if (pos.w > 14) {
+        const label = midiToNoteName(m);
+        ctx.fillStyle = active ? "rgba(255,255,255,0.95)" : "rgba(200,200,220,0.6)";
+        ctx.font = `${Math.min(9, pos.w * 0.38)}px system-ui, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "bottom";
+        ctx.fillText(label, pos.centre, hitY + bkHeight - 3, pos.w - 2);
+      }
+    }
+
+    // ── Progress / time overlay ──────────────────────────────────
+    ctx.fillStyle = "rgba(255,255,255,0.6)";
+    ctx.font = "12px system-ui, sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText(
+      `${formatTime(currentTime)} / ${formatTime(duration)}`,
+      8,
+      8
+    );
+  }, [layout, duration, formatTime, LOOK_AHEAD, KEYBOARD_HEIGHT_RATIO, BLACK_KEY_HEIGHT_RATIO, MIN_BAR_PX]);
+
+  // Animation frame loop — runs whenever the component is mounted
+  useEffect(() => {
+    let running = true;
+
+    function tick() {
+      if (!running) return;
+      draw();
+      rafRef.current = requestAnimationFrame(tick);
+    }
+
+    tick();
+    return () => {
+      running = false;
+      cancelAnimationFrame(rafRef.current);
+    };
+  }, [draw]);
+
+  if (loadState !== "ready") return null;
+
+  return (
+    <div className="space-y-4">
+      {/* Canvas container */}
+      <div
+        ref={containerRef}
+        className="relative w-full rounded-2xl overflow-hidden border border-pink-200/40"
+        style={{ height: "min(60vh, 520px)" }}
+      >
+        <canvas
+          ref={canvasRef}
+          className="block w-full h-full"
+        />
+
+        {/* Play/pause overlay when paused & at start */}
+        {!isPlaying && progress === 0 && (
+          <button
+            onClick={togglePlayback}
+            className="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/30 transition-colors group"
+            aria-label="Play"
+          >
+            <div className="w-16 h-16 rounded-full bg-pink-400/90 group-hover:bg-pink-500 flex items-center justify-center shadow-xl transition-colors">
+              <Play className="w-7 h-7 text-white ml-1" />
+            </div>
+          </button>
+        )}
+      </div>
+
+      {/* Controls below canvas */}
+      <div className="flex items-center justify-center gap-4">
+        <button
+          onClick={togglePlayback}
+          className="flex items-center justify-center w-12 h-12 rounded-full bg-pink-400 hover:bg-pink-500 text-white transition-colors shadow-lg hover:shadow-xl"
+          aria-label={isPlaying ? "Pause" : "Play"}
+        >
+          {isPlaying ? (
+            <Pause className="w-5 h-5" />
+          ) : (
+            <Play className="w-5 h-5 ml-0.5" />
+          )}
+        </button>
+        <button
+          onClick={stopPlayback}
+          className="flex items-center justify-center w-9 h-9 rounded-full bg-white border border-pink-200 text-pink-400 hover:bg-pink-50 transition-colors"
+          aria-label="Stop"
+        >
+          <Square className="w-3.5 h-3.5" />
+        </button>
+
+        {/* Mini progress bar */}
+        <div className="flex-1 max-w-xs">
+          <div className="w-full h-1.5 bg-pink-100 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-pink-300 to-pink-400 rounded-full transition-[width] duration-150"
+              style={{
+                width: `${duration > 0 ? (progress / duration) * 100 : 0}%`,
+              }}
+            />
+          </div>
+        </div>
+        <span className="text-xs text-slate-400 tabular-nums min-w-[4rem] text-right">
+          {formatTime(progress)} / {formatTime(duration)}
+        </span>
+      </div>
+    </div>
+  );
+}
