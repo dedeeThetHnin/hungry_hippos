@@ -16,13 +16,12 @@ export default function Sidebar() {
     >
       {/* Logo */}
       <div>
-        <div className="flex items-center gap-2 mb-10 px-2">
-          {/* Matching the star/sparkle color to your logo theme */}
+        <Link href="/" className="flex items-center gap-2 mb-10 px-2 hover:opacity-80 transition-opacity">
           <span className="text-2xl text-pink-400">✦</span>
           <span className="text-[#2D3142] text-3xl font-fasthand">
-            Sonata
+            Sakura Sonata
           </span>
-        </div>
+        </Link>
 
         {/* Nav */}
         <nav className="flex flex-col gap-3">
