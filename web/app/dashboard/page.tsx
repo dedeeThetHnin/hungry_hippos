@@ -6,6 +6,8 @@ import { Trash2, Music, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import PracticeModal from "@/components/PracticeModal";
 import { LogoutButton } from "@/components/logout-button";
+import Sidebar from "@/components/Sidebar";
+import { SakuraBackground } from "@/components/SakuraBackground";
 
 const BUCKET = "sheet-music";
 
@@ -78,9 +80,10 @@ export default function DashboardPage() {
       <div className="relative z-10 flex h-full w-full overflow-hidden">
         <Sidebar />
 
+        <main className="flex-1 p-10 pb-32 overflow-y-auto">
         <div className="flex justify-between items-start mb-8">
         <div>
-          <h1 className="text-5xl font-bold text-sakura-text-pink mb-2">My Sonatas</h1>
+          <h1 className="text-5x l font-bold text-sakura-text-pink mb-2">My Sonatas</h1>
           <p className="text-sakura-dark/50 text-lg">Your collection of music compositions</p>
         </div>
         <LogoutButton
@@ -148,7 +151,9 @@ export default function DashboardPage() {
             ))}
           </div>
         )}
+      
       </main>
+      </div>
 
       <button
         onClick={() => router.push("/dashboard/new")}
