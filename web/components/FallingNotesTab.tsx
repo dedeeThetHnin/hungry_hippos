@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useMemo } from "react";
-import { Play, Pause, Square } from "lucide-react";
+import { useEffect, useRef, useCallback, useMemo, useState } from "react";
+import { Play, Pause, Square, RotateCcw, RotateCw } from "lucide-react";
 import * as Tone from "tone";
 import type {
   MidiPlayerState,
@@ -110,7 +110,9 @@ interface FallingNotesTabProps {
 
 export function FallingNotesTab({ state, controls, isFullscreen = false }: FallingNotesTabProps) {
   const { isPlaying, loadState, duration, progress } = state;
-  const { togglePlayback, stopPlayback, formatTime, getAllNotes } = controls;
+  const { togglePlayback, stopPlayback, seekTo, skip, formatTime, getAllNotes } = controls;
+  const progressBarRef = useRef<HTMLDivElement | null>(null);
+  const [isScrubbing, setIsScrubbing] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -147,6 +149,39 @@ export function FallingNotesTab({ state, controls, isFullscreen = false }: Falli
     const kb = buildKeyLayout(minMidi, maxMidi);
     return { ...kb, minMidi, maxMidi };
   }, [getAllNotes]);
+
+  // ── Scrubbing helpers ───────────────────────────────────────────────
+  const seekFromPointer = useCallback(
+    (clientX: number) => {
+      const bar = progressBarRef.current;
+      if (!bar || duration <= 0) return;
+      const rect = bar.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      seekTo(ratio * duration);
+    },
+    [duration, seekTo]
+  );
+
+  const handleBarPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      setIsScrubbing(true);
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      seekFromPointer(e.clientX);
+    },
+    [seekFromPointer]
+  );
+
+  const handleBarPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!isScrubbing) return;
+      seekFromPointer(e.clientX);
+    },
+    [isScrubbing, seekFromPointer]
+  );
+
+  const handleBarPointerUp = useCallback(() => {
+    setIsScrubbing(false);
+  }, []);
 
   // ── Resize observer ─────────────────────────────────────────────────
   useEffect(() => {
@@ -398,7 +433,15 @@ export function FallingNotesTab({ state, controls, isFullscreen = false }: Falli
       </div>
 
       {/* Controls below canvas */}
-      <div className="flex items-center justify-center gap-4 shrink-0">
+      <div className="flex items-center justify-center gap-3 shrink-0">
+        <button
+          onClick={() => skip(-5)}
+          className="flex items-center justify-center w-9 h-9 rounded-full bg-white border border-pink-200 text-pink-400 hover:bg-pink-50 transition-colors"
+          aria-label="Rewind 5 seconds"
+          title="Rewind 5s"
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+        </button>
         <button
           onClick={togglePlayback}
           className="flex items-center justify-center w-12 h-12 rounded-full bg-pink-400 hover:bg-pink-500 text-white transition-colors shadow-lg hover:shadow-xl"
@@ -411,6 +454,14 @@ export function FallingNotesTab({ state, controls, isFullscreen = false }: Falli
           )}
         </button>
         <button
+          onClick={() => skip(5)}
+          className="flex items-center justify-center w-9 h-9 rounded-full bg-white border border-pink-200 text-pink-400 hover:bg-pink-50 transition-colors"
+          aria-label="Forward 5 seconds"
+          title="Forward 5s"
+        >
+          <RotateCw className="w-3.5 h-3.5" />
+        </button>
+        <button
           onClick={stopPlayback}
           className="flex items-center justify-center w-9 h-9 rounded-full bg-white border border-pink-200 text-pink-400 hover:bg-pink-50 transition-colors"
           aria-label="Stop"
@@ -418,16 +469,30 @@ export function FallingNotesTab({ state, controls, isFullscreen = false }: Falli
           <Square className="w-3.5 h-3.5" />
         </button>
 
-        {/* Mini progress bar */}
-        <div className="flex-1 max-w-xs">
-          <div className="w-full h-1.5 bg-pink-100 rounded-full overflow-hidden">
+        {/* Scrubbing mini progress bar */}
+        <div
+          ref={progressBarRef}
+          className="flex-1 max-w-xs relative cursor-pointer group"
+          onPointerDown={handleBarPointerDown}
+          onPointerMove={handleBarPointerMove}
+          onPointerUp={handleBarPointerUp}
+          onPointerCancel={handleBarPointerUp}
+        >
+          <div className="w-full h-2 bg-pink-100 rounded-full overflow-hidden group-hover:h-2.5 transition-all">
             <div
-              className="h-full bg-gradient-to-r from-pink-300 to-pink-400 rounded-full transition-[width] duration-150"
+              className="h-full bg-gradient-to-r from-pink-300 to-pink-400 rounded-full transition-[width] duration-75"
               style={{
                 width: `${duration > 0 ? (progress / duration) * 100 : 0}%`,
               }}
             />
           </div>
+          {/* Thumb */}
+          <div
+            className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white border-2 border-pink-400 rounded-full shadow opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+            style={{
+              left: `calc(${duration > 0 ? (progress / duration) * 100 : 0}% - 6px)`,
+            }}
+          />
         </div>
         <span className="text-xs text-slate-400 tabular-nums min-w-[4rem] text-right">
           {formatTime(progress)} / {formatTime(duration)}

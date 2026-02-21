@@ -31,6 +31,8 @@ export interface MidiPlayerState {
 export interface MidiPlayerControls {
   togglePlayback: () => Promise<void>;
   stopPlayback: () => void;
+  seekTo: (time: number) => void;
+  skip: (seconds: number) => void;
   formatTime: (seconds: number) => string;
   getAllNotes: () => NoteEvent[];
 }
@@ -200,6 +202,86 @@ export function useMidiPlayer(id: string | undefined) {
     }, 100);
   }
 
+  /**
+   * Re-schedule all MIDI parts from a given time offset.
+   * The transport should be stopped/paused before calling this.
+   */
+  function rescheduleFrom(time: number) {
+    const midi = midiRef.current;
+    const sampler = samplerRef.current;
+    if (!midi || !sampler) return;
+
+    const transport = Tone.getTransport();
+    transport.cancel();
+    partsRef.current.forEach((p) => p.dispose());
+    partsRef.current = [];
+
+    midi.tracks.forEach((track) => {
+      if (track.notes.length === 0) return;
+
+      const part = new Tone.Part(
+        (t, note: { name: string; duration: number; velocity: number }) => {
+          sampler.triggerAttackRelease(
+            note.name,
+            note.duration,
+            t,
+            note.velocity
+          );
+          setActiveNotes((prev) => [...new Set([...prev, note.name])]);
+          setTimeout(() => {
+            setActiveNotes((prev) => prev.filter((n) => n !== note.name));
+          }, note.duration * 1000);
+        },
+        track.notes.map((n) => ({
+          time: n.time,
+          name: n.name,
+          duration: n.duration,
+          velocity: n.velocity,
+        }))
+      );
+
+      part.start(0);
+      partsRef.current.push(part);
+    });
+
+    transport.schedule(() => {
+      stopPlayback();
+    }, duration + 1);
+  }
+
+  const seekTo = useCallback(
+    (time: number) => {
+      const clamped = Math.max(0, Math.min(time, duration));
+      const transport = Tone.getTransport();
+      const wasPlaying = transport.state === "started";
+
+      // Release any ringing notes
+      samplerRef.current?.releaseAll();
+      setActiveNotes([]);
+
+      transport.pause();
+      rescheduleFrom(clamped);
+      transport.seconds = clamped;
+      setProgress(clamped);
+
+      if (wasPlaying) {
+        transport.start();
+        startProgressTracking();
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [duration, stopPlayback]
+  );
+
+  const skip = useCallback(
+    (seconds: number) => {
+      const transport = Tone.getTransport();
+      const newTime = transport.seconds + seconds;
+      seekTo(newTime);
+    },
+    [seekTo]
+  );
+
   const togglePlayback = useCallback(async () => {
     const transport = Tone.getTransport();
 
@@ -309,6 +391,8 @@ export function useMidiPlayer(id: string | undefined) {
     controls: {
       togglePlayback,
       stopPlayback,
+      seekTo,
+      skip,
       formatTime,
       getAllNotes,
     },
