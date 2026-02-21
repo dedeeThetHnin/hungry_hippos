@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { SakuraBackground } from "@/components/SakuraBackground";
 import Link from "next/link";
 import { Upload } from "lucide-react";
@@ -14,6 +15,7 @@ export default function NewCompositionPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [status, setStatus] = useState<string>("");
   const supabase = useMemo(() => createClient(), []);
+  const router = useRouter();
 
   const uploadFile = async (file: File) => {
     try {
@@ -69,8 +71,9 @@ export default function NewCompositionPage() {
 
       const url = signed.publicUrl;
 
+      const scoreId = crypto.randomUUID();
       const { error: scoreErr } = await supabase.from(SCORES).insert({
-        id: crypto.randomUUID(),
+        id: scoreId,
         user_id: user.id,
         title: safeName,
         file_url: url,
@@ -82,7 +85,8 @@ export default function NewCompositionPage() {
         return;
       }
 
-      setStatus(`Uploaded successfully`);
+      setStatus("");
+      router.push(`/tutorial/${scoreId}`);
     } catch (e: any) {
       setStatus(`Upload error: ${e?.message ?? "Unknown error"}`);
     }
