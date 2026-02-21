@@ -70,8 +70,13 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="relative min-h-screen w-full bg-sakura-bg font-inter">
-      <main className="p-10 pb-32">
+    <div className="relative flex h-screen w-screen overflow-hidden font-inter bg-sakura-bg">
+      {/* Sakura petals background (behind everything) */}
+      <SakuraBackground />
+
+      {/* Foreground content */}
+      <div className="relative z-10 flex h-full w-full overflow-hidden">
+        <Sidebar />
 
         <div className="flex justify-between items-start mb-8">
         <div>
@@ -109,12 +114,12 @@ export default function DashboardPage() {
                   <Trash2 className="w-4 h-4" />
                 </button>
 
-                <div className="flex flex-col h-32 justify-between">
-                  <div className="pr-10">
-                    <h3 className="text-lg font-semibold text-sakura-text-pink">
-                      {score.title?.trim() ? score.title : "Untitled"}
-                    </h3>
-                  </div>
+                  <div className="flex h-32 flex-col justify-between">
+                    <div className="pr-10">
+                      <h3 className="text-lg font-semibold text-sakura-text-pink">
+                        {score.title?.trim() ? score.title : "Untitled"}
+                      </h3>
+                    </div>
 
                   <div className="flex justify-between items-center">
                     <p className="text-sakura-dark/40 text-xs">
