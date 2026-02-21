@@ -35,15 +35,27 @@ function TutorialContent() {
     setIsFullscreen((prev) => !prev);
   }, []);
 
-  // Escape key exits fullscreen
+  // Keyboard shortcuts
   useEffect(() => {
-    if (!isFullscreen) return;
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setIsFullscreen(false);
+      if (e.key === "Escape" && isFullscreen) setIsFullscreen(false);
+      if (loadState !== "ready") return;
+      if (e.key === " ") {
+        e.preventDefault();
+        controls.togglePlayback();
+      }
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        controls.skip(-5);
+      }
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        controls.skip(5);
+      }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [isFullscreen]);
+  }, [isFullscreen, loadState, controls]);
 
   // ─── Render ─────────────────────────────────────────────
   if (loadState === "error") {
