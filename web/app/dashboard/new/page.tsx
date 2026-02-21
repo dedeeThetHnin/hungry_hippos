@@ -63,18 +63,11 @@ export default function NewCompositionPage() {
         return;
       }
 
-      // Private bucket -> signed URL
-      const { data: signed, error: signErr } = await supabase.storage
+      const { data: signed } = await supabase.storage
         .from(BUCKET)
-        .createSignedUrl(data.path, 60 * 10); // 10 min
+        .getPublicUrl(data.path);
 
-      if (signErr) {
-        console.log("Signed URL error:", signErr);
-        setStatus(`Uploaded successfully`);
-        return;
-      }
-
-      const url = signed.signedUrl;
+      const url = signed.publicUrl;
 
       const { error: scoreErr } = await supabase.from(SCORES).insert({
         id: crypto.randomUUID(),
