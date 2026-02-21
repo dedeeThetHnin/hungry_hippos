@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { Fasthand } from "next/font/google";
 import { ThemeProvider } from "next-themes";
+import { SakuraBackground } from "@/components/SakuraBackground";
+import { LoginForm } from "@/components/login-form";
 import "./globals.css";
 
 const defaultUrl = process.env.VERCEL_URL
