@@ -13,6 +13,7 @@ export interface NoteEvent {
   midi: number;
   name: string;
   velocity: number;
+  track: number;
 }
 
 export interface MidiPlayerState {
@@ -361,7 +362,7 @@ export function useMidiPlayer(id: string | undefined) {
     const midi = midiRef.current;
     if (!midi) return [];
     const notes: NoteEvent[] = [];
-    midi.tracks.forEach((track) => {
+    midi.tracks.forEach((track, trackIndex) => {
       track.notes.forEach((n) => {
         notes.push({
           time: n.time,
@@ -369,6 +370,7 @@ export function useMidiPlayer(id: string | undefined) {
           midi: n.midi,
           name: n.name,
           velocity: n.velocity,
+          track: trackIndex,
         });
       });
     });

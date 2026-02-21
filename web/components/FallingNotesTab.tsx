@@ -85,12 +85,12 @@ function midiToNoteName(midi: number): string {
 
 // ── Colour helpers ────────────────────────────────────────────────────
 
-/** Map a note's pitch class to a pastel hue so different notes get different
- *  colours, all within a pink / sakura palette. */
-function noteColor(midi: number, alpha = 1): string {
-  // Rotate hue from pink (330) through reds / magentas
-  const hue = 330 + ((midi % 12) * 25) % 360;
-  return `hsla(${hue % 360}, 80%, 65%, ${alpha})`;
+/** Two-tone colouring: darker for bass track, lighter for treble track. */
+const BASS_COLOR = (alpha: number) => `hsla(340, 80%, 65%, ${alpha})`; // pink
+const TREBLE_COLOR = (alpha: number) => `hsla(345, 85%, 80%, ${alpha})`; // lighter pink
+
+function noteColor(isBass: boolean, alpha = 1): string {
+  return isBass ? BASS_COLOR(alpha) : TREBLE_COLOR(alpha);
 }
 
 const ACTIVE_KEY_COLOR = "#FF7EB6";
@@ -124,6 +124,35 @@ export function FallingNotesTab({ state, controls, isFullscreen = false }: Falli
   const KEYBOARD_HEIGHT_RATIO = 0.15; // keyboard is 15% of canvas height
   const BLACK_KEY_HEIGHT_RATIO = 0.6; // black keys are 60% of white key height
   const MIN_BAR_PX = 6; // minimum height so tiny notes are still visible
+
+  // Determine which track is the bass track by comparing average pitch per track.
+  // In typical piano MIDI files, the bass (left hand) track has lower average pitch.
+  const bassTrack = useMemo(() => {
+    const notes = getAllNotes();
+    if (notes.length === 0) return -1;
+
+    const trackPitchSums = new Map<number, { sum: number; count: number }>();
+    for (const n of notes) {
+      const entry = trackPitchSums.get(n.track) ?? { sum: 0, count: 0 };
+      entry.sum += n.midi;
+      entry.count++;
+      trackPitchSums.set(n.track, entry);
+    }
+
+    // If only one track, fall back to -1 (will use pitch threshold)
+    if (trackPitchSums.size < 2) return -1;
+
+    let lowestAvg = Infinity;
+    let lowestTrack = -1;
+    for (const [track, { sum, count }] of trackPitchSums) {
+      const avg = sum / count;
+      if (avg < lowestAvg) {
+        lowestAvg = avg;
+        lowestTrack = track;
+      }
+    }
+    return lowestTrack;
+  }, [getAllNotes]);
 
   // Precompute note data when available
   const layout = useMemo(() => {
@@ -280,7 +309,10 @@ export function FallingNotesTab({ state, controls, isFullscreen = false }: Falli
       const barW = pos.w - 2; // 2px gap between adjacent bars
       const radius = Math.min(4, barW / 2, barHeight / 2);
 
-      ctx.fillStyle = noteColor(note.midi, 0.85);
+      // Determine bass/treble: use track info if multi-track, else pitch threshold
+      const isBass = bassTrack >= 0 ? note.track === bassTrack : note.midi < 60;
+
+      ctx.fillStyle = noteColor(isBass, 0.85);
       ctx.beginPath();
       ctx.roundRect(barX, yTop, barW, barHeight, radius);
       ctx.fill();
@@ -289,7 +321,7 @@ export function FallingNotesTab({ state, controls, isFullscreen = false }: Falli
       if (activeKeys.has(note.midi)) {
         ctx.shadowColor = ACTIVE_KEY_COLOR;
         ctx.shadowBlur = 12;
-        ctx.fillStyle = noteColor(note.midi, 1);
+        ctx.fillStyle = noteColor(isBass, 1);
         ctx.beginPath();
         ctx.roundRect(barX, yTop, barW, barHeight, radius);
         ctx.fill();
@@ -374,7 +406,7 @@ export function FallingNotesTab({ state, controls, isFullscreen = false }: Falli
       8,
       8
     );
-  }, [layout, duration, formatTime, LOOK_AHEAD, KEYBOARD_HEIGHT_RATIO, BLACK_KEY_HEIGHT_RATIO, MIN_BAR_PX]);
+  }, [layout, bassTrack, duration, formatTime, LOOK_AHEAD, KEYBOARD_HEIGHT_RATIO, BLACK_KEY_HEIGHT_RATIO, MIN_BAR_PX]);
 
   // Animation frame loop — runs whenever the component is mounted
   useEffect(() => {
