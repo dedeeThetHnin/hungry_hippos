@@ -143,7 +143,14 @@ function buildPracticeSummary(args: {
     }
   }
 
-  const attempts = sessionLog.length;
+  // Count unique steps attempted rather than raw log events to avoid
+  // inflating attempts when a student retries the same step multiple times.
+  const uniqueSteps = new Set<number>();
+  for (const e of sessionLog) {
+    if (typeof e?.stepIndex === "number") uniqueSteps.add(e.stepIndex);
+    else if (typeof e?.step === "number") uniqueSteps.add(e.step);
+  }
+  const attempts = uniqueSteps.size > 0 ? uniqueSteps.size : sessionLog.length;
   const accuracyPct = attempts > 0 ? Math.round((hits / attempts) * 100) : 0;
 
   const topN = (m: Map<number, number>) =>
@@ -152,10 +159,15 @@ function buildPracticeSummary(args: {
       .slice(0, 5)
       .map(([midi, count]) => ({ midi, note: midiToNoteName(midi), count }));
 
-  const hotspots = [...failsByStep.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([step, fails]) => ({ step, fails }));
+  const hasStepInfo = sessionLog.some(
+    (e) => typeof e?.stepIndex === "number" || typeof e?.step === "number"
+  );
+  const hotspots = hasStepInfo
+    ? [...failsByStep.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([step, fails]) => ({ step, fails }))
+    : [];
 
   return {
     pieceTitle,
@@ -363,7 +375,7 @@ export function PracticeTab({
     try {
       const summary = buildPracticeSummary({
         sessionLog,
-        totalSteps,
+        totalSteps: practiceMode === "flowing" ? flowingTotalNotes : totalSteps,
         pieceTitle: state.title || "this piece",
         mode: practiceMode,
         playbackSpeed,
