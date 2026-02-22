@@ -32,11 +32,15 @@ interface FallingNotesTabProps {
   pianoFactory?: PianoPlayerFactory;
 }
 
+const LARGE_FILE_THRESHOLD_SECS = 120; // 2 minutes
+
 export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSwitcher, playbackSpeed = 1, midiRef, pianoFactory = splendidPiano }: FallingNotesTabProps) {
   const { isPlaying, loadState, duration, progress } = state;
   const { togglePlayback, stopPlayback, seekTo, skip, formatTime, getAllNotes } = controls;
   const progressBarRef = useRef<HTMLDivElement | null>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
+
+  const isLargeFile = duration > LARGE_FILE_THRESHOLD_SECS;
 
   // Video export
   const { exportVideo, exportProgress, isExporting, exportError, cancelExport } = useVideoExport();
@@ -46,8 +50,6 @@ export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSw
   const rafRef = useRef<number>(0);
   const notesCache = useRef<NoteEvent[]>([]);
 
-  // Determine which track is the bass track by comparing average pitch per track.
-  // In typical piano MIDI files, the bass (left hand) track has lower average pitch.
   const bassTrack = useMemo(() => {
     const notes = getAllNotes();
     if (notes.length === 0) return -1;
@@ -60,7 +62,6 @@ export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSw
       trackPitchSums.set(n.track, entry);
     }
 
-    // If only one track, fall back to -1 (will use pitch threshold)
     if (trackPitchSums.size < 2) return -1;
 
     let lowestAvg = Infinity;
@@ -75,7 +76,6 @@ export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSw
     return lowestTrack;
   }, [getAllNotes]);
 
-  // Precompute note data when available
   const layout = useMemo(() => {
     const notes = getAllNotes();
     notesCache.current = notes;
@@ -88,11 +88,9 @@ export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSw
       if (n.midi > maxMidi) maxMidi = n.midi;
     }
 
-    // Pad by a few semitones so edge notes don't sit right at the boundary
     minMidi = Math.max(21, minMidi - 2);
     maxMidi = Math.min(108, maxMidi + 2);
 
-    // Expand to nearest white key boundaries
     while (isBlackKey(minMidi)) minMidi--;
     while (isBlackKey(maxMidi)) maxMidi++;
 
@@ -100,7 +98,6 @@ export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSw
     return { ...kb, minMidi, maxMidi };
   }, [getAllNotes]);
 
-  // ── Scrubbing helpers ───────────────────────────────────────────────
   const seekFromPointer = useCallback(
     (clientX: number) => {
       const bar = progressBarRef.current;
@@ -133,7 +130,6 @@ export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSw
     setIsScrubbing(false);
   }, []);
 
-  // ── Resize observer ─────────────────────────────────────────────────
   useEffect(() => {
     const container = containerRef.current;
     const canvas = canvasRef.current;
@@ -157,8 +153,6 @@ export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSw
     return () => observer.disconnect();
   }, []);
 
-  // ── Render loop ─────────────────────────────────────────────────
-
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || !layout) return;
@@ -169,7 +163,6 @@ export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSw
     const W = canvas.width / dpr;
     const H = canvas.height / dpr;
 
-    // Convert transport time to virtual (original) time
     const currentTime = Tone.getTransport().seconds * playbackSpeed;
 
     drawFallingNotesFrame(ctx, W, H, currentTime, {
@@ -181,10 +174,8 @@ export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSw
     });
   }, [layout, bassTrack, duration, formatTime, playbackSpeed]);
 
-  // ── Export handler ──────────────────────────────────────────────
   const handleExportVideo = useCallback(() => {
     if (!layout || isExporting) return;
-    // Stop playback before exporting
     stopPlayback();
 
     exportVideo({
@@ -201,7 +192,6 @@ export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSw
     });
   }, [layout, bassTrack, duration, playbackSpeed, formatTime, midiRef, pianoFactory, isExporting, exportVideo, stopPlayback, state.title, state.bpm]);
 
-  // Animation frame loop — runs whenever the component is mounted
   useEffect(() => {
     let running = true;
 
@@ -238,12 +228,8 @@ export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSw
         }`}
         style={isFullscreen ? undefined : { height: "min(60vh, 520px)" }}
       >
-        <canvas
-          ref={canvasRef}
-          className="block w-full h-full"
-        />
+        <canvas ref={canvasRef} className="block w-full h-full" />
 
-        {/* Play/pause overlay when paused & at start */}
         {!isPlaying && progress === 0 && (
           <button
             onClick={togglePlayback}
@@ -257,8 +243,8 @@ export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSw
         )}
       </div>
 
-      {/* Controls below canvas */}
-      <div className="flex items-center justify-center gap-3 shrink-0">
+      {/* Controls */}
+      <div className="flex items-center justify-center gap-3 shrink-0 flex-wrap">
         <button
           onClick={() => skip(-5)}
           className="flex items-center justify-center w-9 h-9 rounded-full bg-white border border-pink-200 text-pink-400 hover:bg-pink-50 transition-colors"
@@ -294,7 +280,7 @@ export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSw
           <Square className="w-3.5 h-3.5" />
         </button>
 
-        {/* Scrubbing mini progress bar */}
+        {/* Progress bar */}
         <div
           ref={progressBarRef}
           className="flex-1 max-w-xs relative cursor-pointer group"
@@ -306,17 +292,12 @@ export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSw
           <div className="w-full h-2 bg-pink-100 rounded-full overflow-hidden group-hover:h-2.5 transition-all">
             <div
               className="h-full bg-gradient-to-r from-pink-300 to-pink-400 rounded-full transition-[width] duration-75"
-              style={{
-                width: `${duration > 0 ? (progress / duration) * 100 : 0}%`,
-              }}
+              style={{ width: `${duration > 0 ? (progress / duration) * 100 : 0}%` }}
             />
           </div>
-          {/* Thumb */}
           <div
             className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white border-2 border-pink-400 rounded-full shadow opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
-            style={{
-              left: `calc(${duration > 0 ? (progress / duration) * 100 : 0}% - 6px)`,
-            }}
+            style={{ left: `calc(${duration > 0 ? (progress / duration) * 100 : 0}% - 6px)` }}
           />
         </div>
         <span className="text-xs text-slate-400 tabular-nums min-w-[4rem] text-right">
@@ -325,35 +306,42 @@ export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSw
 
         {/* Export Video button */}
         {midiRef && (
-          isExporting ? (
-            <div className="flex items-center gap-2 ml-2">
-              <div className="flex items-center gap-1.5 rounded-full bg-pink-50 border border-pink-200 px-3 py-1.5 text-xs text-pink-600 min-w-[7rem]">
-                <Download className="w-3.5 h-3.5 animate-pulse" />
-                <span>Exporting {exportProgress ?? 0}%</span>
+          <div className="flex flex-col items-end gap-1 ml-2">
+            {isExporting ? (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 rounded-full bg-pink-50 border border-pink-200 px-3 py-1.5 text-xs text-pink-600 min-w-[7rem]">
+                  <Download className="w-3.5 h-3.5 animate-pulse" />
+                  <span>Exporting {exportProgress ?? 0}%</span>
+                </div>
+                <button
+                  onClick={cancelExport}
+                  className="flex items-center justify-center w-7 h-7 rounded-full bg-white border border-pink-200 text-pink-400 hover:bg-pink-50 transition-colors"
+                  aria-label="Cancel export"
+                  title="Cancel export"
+                >
+                  <X className="w-3 h-3" />
+                </button>
               </div>
+            ) : (
               <button
-                onClick={cancelExport}
-                className="flex items-center justify-center w-7 h-7 rounded-full bg-white border border-pink-200 text-pink-400 hover:bg-pink-50 transition-colors"
-                aria-label="Cancel export"
-                title="Cancel export"
+                onClick={handleExportVideo}
+                className="flex items-center gap-1.5 rounded-full bg-white border border-pink-200 text-pink-400 hover:bg-pink-50 hover:text-pink-600 transition-colors px-3 py-1.5 text-xs"
+                aria-label="Export video"
+                title="Export falling notes as video"
               >
-                <X className="w-3 h-3" />
+                <Download className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Export Video</span>
               </button>
-            </div>
-          ) : (
-            <button
-              onClick={handleExportVideo}
-              className="flex items-center gap-1.5 rounded-full bg-white border border-pink-200 text-pink-400 hover:bg-pink-50 hover:text-pink-600 transition-colors px-3 py-1.5 text-xs ml-2"
-              aria-label="Export video"
-              title="Export falling notes as video"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Export Video</span>
-            </button>
-          )
-        )}
-        {exportError && (
-          <span className="text-xs text-red-500 ml-1" title={exportError}>Export failed</span>
+            )}
+            {isLargeFile && !isExporting && (
+              <span className="text-xs text-amber-500 max-w-[12rem] text-right leading-tight">
+                ⚠ This piece is long — export may take several minutes.
+              </span>
+            )}
+            {exportError && (
+              <span className="text-xs text-red-500 text-right" title={exportError}>Export failed</span>
+            )}
+          </div>
         )}
 
         {pianoSwitcher && <div className="ml-1">{pianoSwitcher}</div>}
