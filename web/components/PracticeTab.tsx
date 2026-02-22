@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback, useMemo, useState } from "react";
 import { Play, RotateCcw, Sparkles, Loader2, ChevronDown, ChevronUp, SkipForward } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import type {
   MidiPlayerState,
   MidiPlayerControls,
@@ -96,33 +97,46 @@ function buildPracticeSummary(args: {
     wrongs++;
 
     // hotspot steps (if present)
-    if (typeof e?.step === "number") {
+    if (typeof e?.stepIndex === "number") {
+      const step = e.stepIndex as number;
+      failsByStep.set(step, (failsByStep.get(step) ?? 0) + 1);
+    } else if (typeof e?.step === "number") {
       const step = e.step as number;
       failsByStep.set(step, (failsByStep.get(step) ?? 0) + 1);
     }
 
     // wrong notes (if present)
-    const wrongList: number[] =
-      (Array.isArray(e?.wrong) && e.wrong) ||
-      (Array.isArray(e?.wrongMidis) && e.wrongMidis) ||
-      (Array.isArray(e?.played) && Array.isArray(e?.expected)
-        ? (e.played as number[]).filter(
-            (m) => !(e.expected as number[]).includes(m),
-          )
-        : []);
+    if (typeof e?.playedMidi === "number" && !correct && e.rating !== "miss") {
+      wrongByMidi.set(e.playedMidi, (wrongByMidi.get(e.playedMidi) ?? 0) + 1);
+    } else {
+      const wrongList: number[] =
+        (Array.isArray(e?.wrong) && e.wrong) ||
+        (Array.isArray(e?.wrongMidis) && e.wrongMidis) ||
+        (Array.isArray(e?.played) && Array.isArray(e?.expected)
+          ? (e.played as number[]).filter(
+              (m) => !(e.expected as number[]).includes(m),
+            )
+          : []);
 
-    for (const w of wrongList) {
-      wrongByMidi.set(w, (wrongByMidi.get(w) ?? 0) + 1);
+      for (const w of wrongList) {
+        wrongByMidi.set(w, (wrongByMidi.get(w) ?? 0) + 1);
+      }
     }
 
     // missed notes (if present)
-    const missedList: number[] =
-      (Array.isArray(e?.missed) && e.missed) ||
-      (Array.isArray(e?.missedMidis) && e.missedMidis) ||
-      [];
+    if (e?.rating === "miss" && Array.isArray(e?.expectedMidis)) {
+      for (const m of e.expectedMidis) {
+        missedByMidi.set(m, (missedByMidi.get(m) ?? 0) + 1);
+      }
+    } else {
+      const missedList: number[] =
+        (Array.isArray(e?.missed) && e.missed) ||
+        (Array.isArray(e?.missedMidis) && e.missedMidis) ||
+        [];
 
-    for (const m of missedList) {
-      missedByMidi.set(m, (missedByMidi.get(m) ?? 0) + 1);
+      for (const m of missedList) {
+        missedByMidi.set(m, (missedByMidi.get(m) ?? 0) + 1);
+      }
     }
   }
 
@@ -901,9 +915,9 @@ export function PracticeTab({
               {feedbackError ? (
                 <p className="text-red-500 text-sm">⚠ {feedbackError}</p>
               ) : (
-                <p className="text-[#2D3142]/80 text-sm leading-relaxed whitespace-pre-wrap">
-                  {feedbackText}
-                </p>
+                <div className="text-[#2D3142]/80 text-sm leading-relaxed prose prose-sm max-w-none">
+                  <ReactMarkdown>{feedbackText ?? ""}</ReactMarkdown>
+                </div>
               )}
             </div>
           )}

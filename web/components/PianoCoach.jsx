@@ -1,4 +1,5 @@
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
 import { usePianoCoach } from "../hooks/usePianoCoach";
 
 const S = {
@@ -104,7 +105,7 @@ export default function PianoCoach({ className, style, onFeedback }) {
           </div>
         )}
 
-        {feedback && <div style={S.feedback}>{feedback}</div>}
+        {feedback && <div style={S.feedback}><ReactMarkdown>{feedback}</ReactMarkdown></div>}
         {error && <div style={S.error}>⚠ {error}</div>}
       </div>
     </>
