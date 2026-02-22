@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Trash2, Music, Plus } from "lucide-react";
+import { Trash2, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
-import PracticeModal from "@/components/PracticeModal";
 import { LogoutButton } from "@/components/logout-button";
 import Link from "next/link";
 import { SakuraBackground } from "@/components/SakuraBackground";
@@ -31,7 +30,6 @@ export default function DashboardPage() {
   const [scores, setScores] = useState<Score[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [practiceScore, setPracticeScore] = useState<Score | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -137,17 +135,6 @@ export default function DashboardPage() {
                       {deletingId === score.id ? (
                         <span className="text-xs text-sakura-dark/40">Deleting…</span>
                       ) : null}
-
-                      {/* Practice button */}
-                      <button
-                        type="button"
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sakura-text-pink/10 hover:bg-sakura-text-pink/20 text-sakura-text-pink text-xs font-medium transition"
-                        onClick={(e) => { e.stopPropagation(); setPracticeScore(score); }}
-                        title="Practice with keyboard"
-                      >
-                        <Music className="w-3 h-3" />
-                        Practice
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -169,13 +156,6 @@ export default function DashboardPage() {
         <Plus className="w-7 h-7" />
       </button>
 
-      {/* Practice modal */}
-      {practiceScore && (
-        <PracticeModal
-          score={practiceScore}
-          onClose={() => setPracticeScore(null)}
-        />
-      )}
     </div>
   );
 }

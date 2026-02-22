@@ -3,7 +3,7 @@
 import { Suspense, useState, useCallback, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, Loader2, Music, Piano, Maximize2, Minimize2, Volume2 } from "lucide-react";
+import { ChevronLeft, Loader2, Music, Piano, Maximize2, Minimize2, Volume2, Gamepad2 } from "lucide-react";
 import { SakuraBackground } from "@/components/SakuraBackground";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { AudioPlayerTab } from "@/components/AudioPlayerTab";
 import { FallingNotesTab } from "@/components/FallingNotesTab";
+import { PracticeTab } from "@/components/PracticeTab";
 import { useMidiPlayer } from "@/lib/hooks/useMidiPlayer";
 import type { PianoPlayerFactory } from "@/lib/piano";
 import { splendidPiano, salamanderPiano, soundfontPiano } from "@/lib/piano";
@@ -46,7 +47,7 @@ function TutorialContent() {
   const id = params?.id;
   const [pianoKey, setPianoKey] = useState("splendid");
   const pianoFactory = PIANO_OPTIONS.find((o) => o.value === pianoKey)!.factory;
-  const { state, controls } = useMidiPlayer(id, pianoFactory);
+  const { state, controls, refs } = useMidiPlayer(id, pianoFactory);
   const { loadState, error, title, bpm, noteCount, trackCount, duration, keySignature, timeSignature } = state;
   const { formatTime } = controls;
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -236,6 +237,13 @@ function TutorialContent() {
                 <Music className="w-4 h-4" />
                 Audio Player
               </TabsTrigger>
+              <TabsTrigger
+                value="practice"
+                className="flex-1 gap-1.5 rounded-lg data-[state=active]:bg-white data-[state=active]:text-pink-600 data-[state=active]:shadow-sm text-slate-500 transition-all text-sm"
+              >
+                <Gamepad2 className="w-4 h-4" />
+                Practice
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent
@@ -256,6 +264,23 @@ function TutorialContent() {
 
             <TabsContent value="audio-player" className="mt-4">
               <AudioPlayerTab state={state} controls={controls} pianoSwitcher={pianoSwitcherEl} />
+            </TabsContent>
+
+            <TabsContent
+              value="practice"
+              className={`${
+                isFullscreen
+                  ? "flex-1 min-h-0 relative overflow-hidden"
+                  : "mt-4"
+              }`}
+            >
+              <PracticeTab
+                state={state}
+                controls={controls}
+                refs={refs}
+                isFullscreen={isFullscreen}
+                pianoSwitcher={pianoSwitcherEl}
+              />
             </TabsContent>
           </Tabs>
         )}

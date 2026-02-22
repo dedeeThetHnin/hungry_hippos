@@ -8,97 +8,19 @@ import type {
   MidiPlayerControls,
   NoteEvent,
 } from "@/lib/hooks/useMidiPlayer";
-
-// ── Piano layout helpers ──────────────────────────────────────────────
-
-/** Which pitch classes are black keys (0 = C) */
-const BLACK_PITCH_CLASSES = new Set([1, 3, 6, 8, 10]); // C#, D#, F#, G#, A#
-
-function isBlackKey(midiNumber: number): boolean {
-  return BLACK_PITCH_CLASSES.has(midiNumber % 12);
-}
-
-/**
- * Returns the index among *white keys only* for midi numbers in the
- * range [rangeMin, rangeMax]. Black keys sit between white keys so they
- * don't get their own column — they overlay the gap between two adjacent
- * white keys.
- *
- * We compute every white key's sequential index starting from rangeMin's
- * nearest white key.
- */
-function buildKeyLayout(rangeMin: number, rangeMax: number) {
-  // Expand range to include full white keys that the black key sits between
-  const lo = rangeMin;
-  const hi = rangeMax;
-
-  // Count white keys in range
-  let whiteCount = 0;
-  for (let m = lo; m <= hi; m++) {
-    if (!isBlackKey(m)) whiteCount++;
-  }
-
-  return { lo, hi, whiteCount };
-}
-
-/**
- * Given a midi number and the keyboard layout, return the x-centre position
- * and width of that key relative to the keyboard, normalised to [0, totalWidth].
- */
-function keyPosition(
-  midi: number,
-  lo: number,
-  hi: number,
-  whiteCount: number,
-  keyboardWidth: number
-) {
-  const whiteKeyWidth = keyboardWidth / whiteCount;
-  const blackKeyWidth = whiteKeyWidth * 0.6;
-
-  // Find which white-key index this midi number (or its neighbours) maps to
-  let whiteIndex = 0;
-  for (let m = lo; m < midi; m++) {
-    if (!isBlackKey(m)) whiteIndex++;
-  }
-
-  if (!isBlackKey(midi)) {
-    // White key — centred in its slot
-    const x = whiteIndex * whiteKeyWidth;
-    return { x, w: whiteKeyWidth, centre: x + whiteKeyWidth / 2 };
-  } else {
-    // Black key — centred on the boundary between the two surrounding white keys
-    // whiteIndex currently points to the white key *after* this black key
-    const x = whiteIndex * whiteKeyWidth - blackKeyWidth / 2;
-    return { x, w: blackKeyWidth, centre: x + blackKeyWidth / 2 };
-  }
-}
-
-// ── Note name helper ──────────────────────────────────────────────────
-
-const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-
-function midiToNoteName(midi: number): string {
-  const octave = Math.floor(midi / 12) - 1;
-  const note = NOTE_NAMES[midi % 12];
-  return `${note}${octave}`;
-}
-
-// ── Colour helpers ────────────────────────────────────────────────────
-
-/** Two-tone colouring: darker for bass track, lighter for treble track. */
-const BASS_COLOR = (alpha: number) => `hsla(340, 80%, 65%, ${alpha})`; // pink
-const TREBLE_COLOR = (alpha: number) => `hsla(345, 85%, 80%, ${alpha})`; // lighter pink
-
-function noteColor(isBass: boolean, alpha = 1): string {
-  return isBass ? BASS_COLOR(alpha) : TREBLE_COLOR(alpha);
-}
-
-const ACTIVE_KEY_COLOR = "#FF7EB6";
-const WHITE_KEY_COLOR = "#FFFFFF";
-const BLACK_KEY_COLOR = "#2D3142";
-const KEY_BORDER_COLOR = "#CBD5E1";
-const CANVAS_BG = "#1a1028";
-const HIT_LINE_COLOR = "rgba(255,126,182,0.45)";
+import {
+  isBlackKey,
+  buildKeyLayout,
+  keyPosition,
+  midiToNoteName,
+  noteColor,
+  ACTIVE_KEY_COLOR,
+  WHITE_KEY_COLOR,
+  BLACK_KEY_COLOR,
+  KEY_BORDER_COLOR,
+  CANVAS_BG,
+  HIT_LINE_COLOR,
+} from "@/lib/piano/canvas-utils";
 
 // ── Component ─────────────────────────────────────────────────────────
 
