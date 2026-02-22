@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useMemo, useState } from "react";
-import { Play, RotateCcw, Sparkles, Loader2, ChevronDown, ChevronUp, SkipForward } from "lucide-react";
+import { Play, Pause, RotateCcw, Sparkles, Loader2, ChevronDown, ChevronUp, SkipForward } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import type {
   MidiPlayerState,
@@ -212,7 +212,7 @@ export function PracticeTab({
     flowingTotalNotes,
   } = practiceState;
 
-  const { start, reset, skipStep, setActiveDevice, setPracticeMode } = practiceControls;
+  const { start, reset, skipStep, setActiveDevice, setPracticeMode, togglePause } = practiceControls;
 
   // ── AI Feedback state (added; does not affect practice logic) ───────
   const [feedbackText, setFeedbackText] = useState<string | null>(null);
@@ -640,6 +640,21 @@ export function PracticeTab({
       ctx.fillText("Press Start to begin practicing", W / 2, H / 2);
     }
 
+    if (curStatus === "paused") {
+      ctx.fillStyle = "rgba(0,0,0,0.3)";
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.font = "bold 20px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("⏸ Paused", W / 2, H / 2 - 12);
+
+      ctx.fillStyle = "rgba(255,255,255,0.7)";
+      ctx.font = "14px system-ui, sans-serif";
+      ctx.fillText("Press Resume to continue", W / 2, H / 2 + 16);
+    }
+
     if (curStatus === "complete") {
       ctx.fillStyle = "rgba(0,0,0,0.4)";
       ctx.fillRect(0, 0, W, H);
@@ -753,13 +768,27 @@ export function PracticeTab({
             Start
           </button>
         ) : (
-          <button
-            onClick={handleReset}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-white border border-pink-200 text-pink-500 hover:bg-pink-50 text-sm font-medium transition"
-          >
-            <RotateCcw className="w-4 h-4" />
-            Reset
-          </button>
+          <>
+            {(status === "flowing" || status === "paused") && (
+              <button
+                onClick={() => {
+                  togglePause();
+                  togglePlayback();
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium transition"
+              >
+                {status === "paused" ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+                {status === "paused" ? "Resume" : "Pause"}
+              </button>
+            )}
+            <button
+              onClick={handleReset}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-white border border-pink-200 text-pink-500 hover:bg-pink-50 text-sm font-medium transition"
+            >
+              <RotateCcw className="w-4 h-4" />
+              Reset
+            </button>
+          </>
         )}
 
         {/* MIDI device selector */}
