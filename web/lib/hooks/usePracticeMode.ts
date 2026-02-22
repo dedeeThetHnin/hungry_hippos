@@ -5,7 +5,13 @@ import type { Midi } from "@tonejs/midi";
 import * as Tone from "tone";
 import type { PianoPlayer } from "@/lib/piano";
 import type { NoteEvent } from "@/lib/hooks/useMidiPlayer";
-import type { PracticeLogEntry } from "@/lib/piano/midi-helpers";
+import type { PracticeLogEntry, FlowingJudgment, FlowingRating } from "@/lib/piano/midi-helpers";
+import {
+  JUDGMENT_PERFECT_COLOR,
+  JUDGMENT_GREAT_COLOR,
+  JUDGMENT_OKAY_COLOR,
+  JUDGMENT_POOR_COLOR,
+} from "@/lib/piano/canvas-utils";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -30,9 +36,10 @@ export type PracticeStatus =
   | "playing"       // waiting for user to press the correct notes
   | "sustaining"    // user holding correct notes, clock advancing in real-time (continuous only)
   | "waiting"       // wrong note pressed or released, waiting for correct input
+  | "flowing"       // flowing mode: clock advancing in real-time automatically
   | "complete";     // reached the end of the piece
 
-export type PracticeMode = "discrete" | "continuous";
+export type PracticeMode = "discrete" | "continuous" | "flowing";
 
 export interface PracticeModeState {
   status: PracticeStatus;
@@ -64,6 +71,8 @@ export interface PracticeModeState {
   heldNotes: Set<number>;
   /** Whether the skip button should be visible (after 3s stuck on a step) */
   showSkipButton: boolean;
+  /** Total reference note count (for flowing mode accuracy) */
+  flowingTotalNotes: number;
 }
 
 export interface PracticeModeControls {
@@ -81,6 +90,12 @@ const CHORD_TOLERANCE_SEC = 0.03; // 30ms — notes within this window = same st
 const OVER_HOLD_FACTOR = 1.5;
 /** Minimum effective note duration for the over-hold check (seconds) */
 const MIN_EFFECTIVE_DURATION = 0.3;
+
+// Flowing mode timing thresholds (ms)
+const FLOWING_PERFECT_MS = 50;
+const FLOWING_GREAT_MS = 150;
+const FLOWING_OKAY_MS = 300;
+const FLOWING_MATCH_WINDOW_MS = 500;
 
 // ── Step builder ──────────────────────────────────────────────────────
 
@@ -138,6 +153,35 @@ function buildSteps(allNotes: NoteEvent[]): PracticeStep[] {
   return steps;
 }
 
+// ── Flowing-mode rating helper ────────────────────────────────────────
+
+function rateTimingOffset(absMs: number): FlowingRating {
+  if (absMs <= FLOWING_PERFECT_MS) return "perfect";
+  if (absMs <= FLOWING_GREAT_MS) return "great";
+  if (absMs <= FLOWING_OKAY_MS) return "okay";
+  return "poor";
+}
+
+function ratingColor(rating: FlowingRating): string {
+  switch (rating) {
+    case "perfect": return JUDGMENT_PERFECT_COLOR;
+    case "great": return JUDGMENT_GREAT_COLOR;
+    case "okay": return JUDGMENT_OKAY_COLOR;
+    case "poor": return JUDGMENT_POOR_COLOR;
+    case "miss": return JUDGMENT_POOR_COLOR;
+  }
+}
+
+function ratingText(rating: FlowingRating): string {
+  switch (rating) {
+    case "perfect": return "Perfect";
+    case "great": return "Great";
+    case "okay": return "Okay";
+    case "poor": return "Poor";
+    case "miss": return "Miss";
+  }
+}
+
 // ── Hook ──────────────────────────────────────────────────────────────
 
 export function usePracticeMode(
@@ -146,7 +190,7 @@ export function usePracticeMode(
   getAllNotes: () => NoteEvent[],
 ) {
   // ── React state (for UI rendering) ─────────────────────────────
-  const [practiceMode, setPracticeModeState] = useState<PracticeMode>("discrete");
+  const [practiceMode, setPracticeModeState] = useState<PracticeMode>("flowing");
   const [status, setStatus] = useState<PracticeStatus>("idle");
   const [practiceTime, setPracticeTime] = useState(0);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -159,12 +203,13 @@ export function usePracticeMode(
   const [error, setError] = useState<string | null>(null);
   const [heldNotes, setHeldNotes] = useState<Set<number>>(new Set());
   const [showSkipButton, setShowSkipButton] = useState(false);
+  const [flowingTotalNotes, setFlowingTotalNotes] = useState(0);
 
   // ── Refs (source of truth for async callbacks — avoids stale closures) ──
   const stepsRef = useRef<PracticeStep[]>([]);
   const stepIndexRef = useRef(0);
   const statusRef = useRef<PracticeStatus>("idle");
-  const practiceModeRef = useRef<PracticeMode>("discrete");
+  const practiceModeRef = useRef<PracticeMode>("flowing");
   const satisfiedRef = useRef<Set<number>>(new Set());
   const sessionLogRef = useRef<PracticeLogEntry[]>([]);
   const sessionStartRef = useRef(0);
@@ -183,6 +228,21 @@ export function usePracticeMode(
   const sustainBasePracticeRef = useRef(0); // practiceTime when sustain started/resumed
   const audioPlayedRef = useRef(false);     // has audio been played for the current step?
   const skipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Flowing mode refs ───────────────────────────────────────────
+  const flowingAnimRef = useRef<number>(0);
+  const flowingStartWallRef = useRef(0);
+  const flowingStartOffsetRef = useRef(0);
+  /** All individual NoteEvent references for flowing mode matching */
+  const flowingAllNotesRef = useRef<NoteEvent[]>([]);
+  /** Set of indices into flowingAllNotesRef that have been matched */
+  const flowingMatchedRef = useRef<Set<number>>(new Set());
+  /** Set of indices that have been logged as misses */
+  const flowingMissedRef = useRef<Set<number>>(new Set());
+  /** Active judgment popups — read directly by the canvas */
+  const judgmentsRef = useRef<FlowingJudgment[]>([]);
+  /** End time of the last note in the piece (for completion detection) */
+  const flowingEndTimeRef = useRef(0);
 
   // Keep refs in sync
   useEffect(() => { statusRef.current = status; }, [status]);
@@ -475,6 +535,175 @@ export function usePracticeMode(
   goToStepRef.current = goToStep;
   checkAndResumeRef.current = checkAndResume;
 
+  // ── Flowing mode: real-time clock loop ──────────────────────────
+  function startFlowingLoop() {
+    cancelAnimationFrame(flowingAnimRef.current);
+    let lastStateUpdate = performance.now();
+
+    function tick() {
+      if (statusRef.current !== "flowing") return;
+
+      const now = performance.now();
+      const elapsed = (now - flowingStartWallRef.current) / 1000;
+      const newTime = flowingStartOffsetRef.current + elapsed;
+
+      practiceTimeRef.current = newTime;
+
+      // ── Detect missed notes ─────────────────────────────────────
+      const allNotes = flowingAllNotesRef.current;
+      const matched = flowingMatchedRef.current;
+      const missed = flowingMissedRef.current;
+      const missDeadline = newTime - FLOWING_MATCH_WINDOW_MS / 1000;
+
+      for (let i = 0; i < allNotes.length; i++) {
+        if (matched.has(i) || missed.has(i)) continue;
+        if (allNotes[i].time < missDeadline) {
+          // This note was not played in time — log as miss
+          missed.add(i);
+          const note = allNotes[i];
+          const logEntry: PracticeLogEntry = {
+            stepIndex: i,
+            expectedMidis: [note.midi],
+            playedMidi: 0,
+            correct: false,
+            timestamp: performance.now() - sessionStartRef.current,
+            timingOffsetMs: undefined,
+            rating: "miss",
+          };
+          sessionLogRef.current = [...sessionLogRef.current, logEntry];
+          setSessionLog([...sessionLogRef.current]);
+        }
+        // Notes are sorted by time; once we reach notes still in the future, stop
+        if (allNotes[i].time > newTime) break;
+      }
+
+      // ── Completion check ────────────────────────────────────────
+      if (newTime >= flowingEndTimeRef.current + 1.0) {
+        cancelAnimationFrame(flowingAnimRef.current);
+        // Log any remaining unmatched notes as misses
+        for (let i = 0; i < allNotes.length; i++) {
+          if (!matched.has(i) && !missed.has(i)) {
+            missed.add(i);
+            const note = allNotes[i];
+            const logEntry: PracticeLogEntry = {
+              stepIndex: i,
+              expectedMidis: [note.midi],
+              playedMidi: 0,
+              correct: false,
+              timestamp: performance.now() - sessionStartRef.current,
+              timingOffsetMs: undefined,
+              rating: "miss",
+            };
+            sessionLogRef.current = [...sessionLogRef.current, logEntry];
+          }
+        }
+        setSessionLog([...sessionLogRef.current]);
+        setStatus("complete");
+        statusRef.current = "complete";
+        setPracticeTime(newTime);
+        return;
+      }
+
+      // Throttled React state update
+      if (now - lastStateUpdate > 100) {
+        setPracticeTime(newTime);
+        lastStateUpdate = now;
+      }
+
+      flowingAnimRef.current = requestAnimationFrame(tick);
+    }
+
+    flowingAnimRef.current = requestAnimationFrame(tick);
+  }
+
+  /**
+   * Handle a note-on in flowing mode: find the closest unmatched reference
+   * note with the same MIDI pitch within the timing window and rate it.
+   */
+  function handleFlowingNoteOn(midi: number, canvasWidth: number, hitY: number, lo: number, hi: number, whiteCount: number) {
+    const currentTime = practiceTimeRef.current;
+    const allNotes = flowingAllNotesRef.current;
+    const matched = flowingMatchedRef.current;
+    const missed = flowingMissedRef.current;
+
+    // Find closest unmatched reference note with matching pitch within the window
+    let bestIdx = -1;
+    let bestAbsOffset = Infinity;
+
+    for (let i = 0; i < allNotes.length; i++) {
+      if (matched.has(i) || missed.has(i)) continue;
+      const note = allNotes[i];
+      if (note.midi !== midi) continue;
+      const offsetMs = (currentTime - note.time) * 1000;
+      const absOffset = Math.abs(offsetMs);
+      if (absOffset <= FLOWING_MATCH_WINDOW_MS && absOffset < bestAbsOffset) {
+        bestAbsOffset = absOffset;
+        bestIdx = i;
+      }
+    }
+
+    if (bestIdx >= 0) {
+      // Matched a reference note
+      matched.add(bestIdx);
+      const note = allNotes[bestIdx];
+      const offsetMs = (currentTime - note.time) * 1000;
+      const rating = rateTimingOffset(Math.abs(offsetMs));
+
+      const logEntry: PracticeLogEntry = {
+        stepIndex: bestIdx,
+        expectedMidis: [note.midi],
+        playedMidi: midi,
+        correct: true,
+        timestamp: performance.now() - sessionStartRef.current,
+        timingOffsetMs: Math.round(offsetMs),
+        rating,
+      };
+      sessionLogRef.current = [...sessionLogRef.current, logEntry];
+      setSessionLog([...sessionLogRef.current]);
+
+      // Create judgment popup
+      // Use the keyPosition helper via passed layout params
+      const whiteKeyWidth = canvasWidth / whiteCount;
+      const blackKeyWidth = whiteKeyWidth * 0.6;
+      let whiteIndex = 0;
+      for (let m = lo; m < midi; m++) {
+        if (!(new Set([1, 3, 6, 8, 10])).has(m % 12)) whiteIndex++;
+      }
+      const isBlack = new Set([1, 3, 6, 8, 10]).has(midi % 12);
+      const centreX = isBlack
+        ? whiteIndex * whiteKeyWidth - blackKeyWidth / 2 + blackKeyWidth / 2
+        : whiteIndex * whiteKeyWidth + whiteKeyWidth / 2;
+
+      judgmentsRef.current = [
+        ...judgmentsRef.current,
+        {
+          text: ratingText(rating),
+          color: ratingColor(rating),
+          x: centreX,
+          y: hitY - 30,
+          createdAt: performance.now(),
+        },
+      ];
+    } else {
+      // Extra note — no matching reference note found
+      const logEntry: PracticeLogEntry = {
+        stepIndex: -1,
+        expectedMidis: [],
+        playedMidi: midi,
+        correct: false,
+        timestamp: performance.now() - sessionStartRef.current,
+        timingOffsetMs: undefined,
+        rating: undefined,
+      };
+      sessionLogRef.current = [...sessionLogRef.current, logEntry];
+      setSessionLog([...sessionLogRef.current]);
+    }
+  }
+
+  // Store flowing note-on handler in a ref so MIDI listener always has current version
+  const handleFlowingNoteOnRef = useRef(handleFlowingNoteOn);
+  handleFlowingNoteOnRef.current = handleFlowingNoteOn;
+
   // ── Attach MIDI input listener ──────────────────────────────────
   useEffect(() => {
     if (!activeDevice || !midiDevices.length) return;
@@ -487,6 +716,58 @@ export function usePracticeMode(
 
     device.ref.onmidimessage = (msg: MIDIMessageEvent) => {
       const st = statusRef.current;
+
+      // ── Flowing mode handler ──────────────────────────────────
+      if (st === "flowing") {
+        const data = msg.data;
+        if (!data || data.length < 3) return;
+        const [s, midi, velocity] = data;
+        const type = s & 0xf0;
+
+        if (type === 0x90 && velocity > 0) {
+          // Track held notes
+          const newHeld = new Set(heldNotesRef.current);
+          newHeld.add(midi);
+          heldNotesRef.current = newHeld;
+          setHeldNotes(new Set(newHeld));
+
+          // Play the note sound
+          const piano = pianoRef.current;
+          if (piano) {
+            Tone.start();
+            // Find matching note for duration/velocity or use defaults
+            const allNotes = flowingAllNotesRef.current;
+            const matched = flowingMatchedRef.current;
+            const currentTime = practiceTimeRef.current;
+            let matchedNote: NoteEvent | undefined;
+            for (let i = 0; i < allNotes.length; i++) {
+              if (matched.has(i)) continue;
+              if (allNotes[i].midi === midi && Math.abs(allNotes[i].time - currentTime) < 0.5) {
+                matchedNote = allNotes[i];
+                break;
+              }
+            }
+            piano.start({
+              note: matchedNote?.name || `${["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"][midi % 12]}${Math.floor(midi / 12) - 1}`,
+              duration: matchedNote?.duration || 0.5,
+              velocity: velocity / 127,
+            });
+          }
+
+          // Pass 0s for canvas layout — will be updated by the draw loop via the ref
+          handleFlowingNoteOnRef.current(midi, 0, 0, 0, 0, 0);
+        }
+
+        if (type === 0x80 || (type === 0x90 && velocity === 0)) {
+          const newHeld = new Set(heldNotesRef.current);
+          newHeld.delete(midi);
+          heldNotesRef.current = newHeld;
+          setHeldNotes(new Set(newHeld));
+        }
+        return;
+      }
+
+      // ── Discrete / Continuous mode handler ────────────────────
       if (st !== "playing" && st !== "waiting" && st !== "sustaining") return;
 
       const data = msg.data;
@@ -626,8 +907,8 @@ export function usePracticeMode(
 
   // ── Start practice ──────────────────────────────────────────────
   const start = useCallback(() => {
-    const allSteps = buildAllSteps();
-    if (allSteps.length === 0) {
+    const allNotes = getAllNotes();
+    if (allNotes.length === 0) {
       setError("No notes in this score.");
       return;
     }
@@ -637,35 +918,78 @@ export function usePracticeMode(
     transport.pause();
 
     cancelAnimationFrame(sustainAnimRef.current);
+    cancelAnimationFrame(flowingAnimRef.current);
 
-    stepsRef.current = allSteps;
-    stepIndexRef.current = 0;
     sessionStartRef.current = performance.now();
     sessionLogRef.current = [];
     satisfiedRef.current = new Set();
     heldNotesRef.current = new Set();
     rearticNeededRef.current = new Set();
     audioPlayedRef.current = false;
-
-    const firstStep = allSteps[0];
-    practiceTimeRef.current = firstStep.time;
-    setPracticeTime(firstStep.time);
-    setCurrentStepIndex(0);
-    setExpectedMidis(new Set(firstStep.midis));
-    setSatisfiedMidis(new Set());
-    setWrongNote(null);
     setSessionLog([]);
     setError(null);
     setHeldNotes(new Set());
     setShowSkipButton(false);
-    setStatus("playing");
-    statusRef.current = "playing";
-    startSkipTimer();
-  }, [buildAllSteps]);
+    setWrongNote(null);
+
+    if (practiceModeRef.current === "flowing") {
+      // ── Flowing mode start ────────────────────────────────────
+      const sorted = [...allNotes].sort((a, b) => a.time - b.time);
+      flowingAllNotesRef.current = sorted;
+      flowingMatchedRef.current = new Set();
+      flowingMissedRef.current = new Set();
+      judgmentsRef.current = [];
+      setFlowingTotalNotes(sorted.length);
+
+      const firstNoteTime = sorted[0].time;
+      // Start 2 seconds before first note so user can see notes coming
+      const startOffset = Math.max(0, firstNoteTime - 2);
+      const lastNote = sorted[sorted.length - 1];
+      flowingEndTimeRef.current = lastNote.time + lastNote.duration;
+      flowingStartOffsetRef.current = startOffset;
+      flowingStartWallRef.current = performance.now();
+
+      practiceTimeRef.current = startOffset;
+      setPracticeTime(startOffset);
+      setCurrentStepIndex(0);
+      setExpectedMidis(new Set());
+      setSatisfiedMidis(new Set());
+
+      stepsRef.current = [];
+      stepIndexRef.current = 0;
+
+      setStatus("flowing");
+      statusRef.current = "flowing";
+      startFlowingLoop();
+    } else {
+      // ── Discrete / Continuous mode start ──────────────────────
+      const allSteps = buildSteps(allNotes);
+      if (allSteps.length === 0) {
+        setError("No notes in this score.");
+        return;
+      }
+
+      stepsRef.current = allSteps;
+      stepIndexRef.current = 0;
+
+      const firstStep = allSteps[0];
+      practiceTimeRef.current = firstStep.time;
+      setPracticeTime(firstStep.time);
+      setCurrentStepIndex(0);
+      setExpectedMidis(new Set(firstStep.midis));
+      setSatisfiedMidis(new Set());
+      setFlowingTotalNotes(0);
+
+      setStatus("playing");
+      statusRef.current = "playing";
+      startSkipTimer();
+    }
+  }, [getAllNotes]);
 
   // ── Reset ───────────────────────────────────────────────────────
   const reset = useCallback(() => {
     cancelAnimationFrame(sustainAnimRef.current);
+    cancelAnimationFrame(flowingAnimRef.current);
 
     stepsRef.current = [];
     stepIndexRef.current = 0;
@@ -674,6 +998,12 @@ export function usePracticeMode(
     heldNotesRef.current = new Set();
     rearticNeededRef.current = new Set();
     audioPlayedRef.current = false;
+
+    flowingAllNotesRef.current = [];
+    flowingMatchedRef.current = new Set();
+    flowingMissedRef.current = new Set();
+    judgmentsRef.current = [];
+    setFlowingTotalNotes(0);
 
     practiceTimeRef.current = 0;
     setPracticeTime(0);
@@ -694,6 +1024,7 @@ export function usePracticeMode(
   useEffect(() => {
     return () => {
       cancelAnimationFrame(sustainAnimRef.current);
+      cancelAnimationFrame(flowingAnimRef.current);
       if (skipTimerRef.current) clearTimeout(skipTimerRef.current);
     };
   }, []);
@@ -715,6 +1046,7 @@ export function usePracticeMode(
       error,
       heldNotes,
       showSkipButton,
+      flowingTotalNotes,
     } satisfies PracticeModeState,
     controls: {
       start,
@@ -726,5 +1058,13 @@ export function usePracticeMode(
     stepsRef,
     /** Real-time practice clock ref — read by the canvas draw loop for smooth animation */
     practiceTimeRef,
+    /** Judgments ref — read by the canvas draw loop for flowing mode feedback popups */
+    judgmentsRef,
+    /** Flowing mode note-on handler ref — called by canvas with layout info */
+    handleFlowingNoteOnRef,
+    /** All notes ref for flowing mode */
+    flowingAllNotesRef,
+    /** Matched notes ref for flowing mode */
+    flowingMatchedRef,
   };
 }

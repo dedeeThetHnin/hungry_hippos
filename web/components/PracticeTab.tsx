@@ -10,6 +10,7 @@ import type {
 } from "@/lib/hooks/useMidiPlayer";
 import { usePracticeMode } from "@/lib/hooks/usePracticeMode";
 import { buildPracticePrompt } from "@/lib/piano/midi-helpers";
+import type { FlowingJudgment } from "@/lib/piano/midi-helpers";
 import {
   isBlackKey,
   buildKeyLayout,
@@ -32,6 +33,10 @@ const LOOK_AHEAD = 4;
 const KEYBOARD_HEIGHT_RATIO = 0.15;
 const BLACK_KEY_HEIGHT_RATIO = 0.6;
 const MIN_BAR_PX = 6;
+
+// Judgment display constants
+const JUDGMENT_DURATION_MS = 1200;
+const JUDGMENT_FLOAT_PX = 40;
 
 // ── Props ─────────────────────────────────────────────────────────────
 
@@ -61,6 +66,10 @@ export function PracticeTab({
     controls: practiceControls,
     stepsRef,
     practiceTimeRef,
+    judgmentsRef,
+    handleFlowingNoteOnRef,
+    flowingAllNotesRef,
+    flowingMatchedRef,
   } = usePracticeMode(midiRef, pianoRef, getAllNotes);
 
   const {
@@ -79,6 +88,7 @@ export function PracticeTab({
     error,
     heldNotes,
     showSkipButton,
+    flowingTotalNotes,
   } = practiceState;
 
   const { start, reset, skipStep, setActiveDevice, setPracticeMode } = practiceControls;
@@ -150,6 +160,9 @@ export function PracticeTab({
   const heldNotesRef = useRef(heldNotes);
   useEffect(() => { heldNotesRef.current = heldNotes; }, [heldNotes]);
 
+  const practiceModeRef = useRef(practiceMode);
+  useEffect(() => { practiceModeRef.current = practiceMode; }, [practiceMode]);
+
   // ── Resize observer ─────────────────────────────────────────────
   useEffect(() => {
     const container = containerRef.current;
@@ -185,9 +198,10 @@ export function PracticeTab({
     setFeedbackLoading(true);
     setFeedbackError(null);
     try {
+      const totalForPrompt = practiceMode === "flowing" ? flowingTotalNotes : totalSteps;
       const prompt = buildPracticePrompt(
         sessionLog,
-        totalSteps,
+        totalForPrompt,
         state.title || "this piece",
       );
       const res = await fetch("/api/piano-feedback", {
@@ -205,7 +219,26 @@ export function PracticeTab({
     } finally {
       setFeedbackLoading(false);
     }
-  }, [sessionLog, totalSteps, state.title]);
+  }, [sessionLog, totalSteps, flowingTotalNotes, practiceMode, state.title]);
+
+  // ── Update flowing mode note-on handler with layout info ────────
+  // We wrap this so every note-on gets the current canvas layout
+  useEffect(() => {
+    if (!layout) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.width / dpr;
+    const H = canvas.height / dpr;
+    const kbHeight = H * KEYBOARD_HEIGHT_RATIO;
+    const hitY = H - kbHeight;
+
+    const origHandler = handleFlowingNoteOnRef.current;
+    const wrappedHandler = (midi: number, _w: number, _h: number, _lo: number, _hi: number, _wc: number) => {
+      origHandler(midi, W, hitY, layout.lo, layout.hi, layout.whiteCount);
+    };
+    handleFlowingNoteOnRef.current = wrappedHandler;
+  }, [layout, handleFlowingNoteOnRef]);
 
   // ── Render loop ─────────────────────────────────────────────────
   const draw = useCallback(() => {
@@ -229,6 +262,8 @@ export function PracticeTab({
     const curWrongNote = wrongNoteRef.current;
     const curStatus = statusRef.current;
     const curHeld = heldNotesRef.current;
+    const curMode = practiceModeRef.current;
+    const isFlowing = curMode === "flowing";
 
     // Clear
     ctx.fillStyle = CANVAS_BG;
@@ -261,10 +296,10 @@ export function PracticeTab({
       const radius = Math.min(4, barW / 2, barHeight / 2);
       const isBass = bassTrack >= 0 ? note.track === bassTrack : note.midi < 60;
 
-      // Determine note color — highlight expected notes at the hit line
+      // Determine note color — highlight expected notes at the hit line (not in flowing mode)
       let fillAlpha = 0.85;
       let isExpectedNote = false;
-      if (curExpected.has(note.midi) && Math.abs(note.time - currentTime) < 0.05) {
+      if (!isFlowing && curExpected.has(note.midi) && Math.abs(note.time - currentTime) < 0.05) {
         isExpectedNote = true;
         fillAlpha = 1;
       }
@@ -297,7 +332,10 @@ export function PracticeTab({
     }
 
     // ── Hit line ──────────────────────────────────────────────────
-    ctx.fillStyle = curStatus === "waiting" ? "rgba(239,68,68,0.6)" : HIT_LINE_COLOR;
+    const hitLineColor = !isFlowing && curStatus === "waiting"
+      ? "rgba(239,68,68,0.6)"
+      : HIT_LINE_COLOR;
+    ctx.fillStyle = hitLineColor;
     ctx.fillRect(0, hitY - 1, W, 2);
 
     // ── Draw piano keyboard ───────────────────────────────────────
@@ -310,16 +348,25 @@ export function PracticeTab({
 
       // Determine key colour
       let keyColor = WHITE_KEY_COLOR;
-      if (curWrongNote === m) {
-        keyColor = WRONG_KEY_COLOR;
-      } else if (curExpected.has(m) && !curSatisfied.has(m)) {
-        keyColor = EXPECTED_KEY_COLOR;
-      } else if (curSatisfied.has(m)) {
-        keyColor = ACTIVE_KEY_COLOR;
-      } else if (curHeld.has(m)) {
-        keyColor = "#FFB3D9"; // light pink for held but not expected
-      } else if (activeKeys.has(m)) {
-        keyColor = ACTIVE_KEY_COLOR;
+      if (isFlowing) {
+        // Flowing mode: just show held notes, no expected/wrong colouring
+        if (curHeld.has(m)) {
+          keyColor = ACTIVE_KEY_COLOR;
+        } else if (activeKeys.has(m)) {
+          keyColor = "#FFD6E8"; // faint pink for notes at hit line
+        }
+      } else {
+        if (curWrongNote === m) {
+          keyColor = WRONG_KEY_COLOR;
+        } else if (curExpected.has(m) && !curSatisfied.has(m)) {
+          keyColor = EXPECTED_KEY_COLOR;
+        } else if (curSatisfied.has(m)) {
+          keyColor = ACTIVE_KEY_COLOR;
+        } else if (curHeld.has(m)) {
+          keyColor = "#FFB3D9"; // light pink for held but not expected
+        } else if (activeKeys.has(m)) {
+          keyColor = ACTIVE_KEY_COLOR;
+        }
       }
 
       ctx.fillStyle = keyColor;
@@ -348,16 +395,24 @@ export function PracticeTab({
       const bkHeight = kbHeight * BLACK_KEY_HEIGHT_RATIO;
 
       let keyColor = BLACK_KEY_COLOR;
-      if (curWrongNote === m) {
-        keyColor = WRONG_KEY_COLOR;
-      } else if (curExpected.has(m) && !curSatisfied.has(m)) {
-        keyColor = EXPECTED_KEY_COLOR;
-      } else if (curSatisfied.has(m)) {
-        keyColor = ACTIVE_KEY_COLOR;
-      } else if (curHeld.has(m)) {
-        keyColor = "#CC5C8A";
-      } else if (activeKeys.has(m)) {
-        keyColor = ACTIVE_KEY_COLOR;
+      if (isFlowing) {
+        if (curHeld.has(m)) {
+          keyColor = ACTIVE_KEY_COLOR;
+        } else if (activeKeys.has(m)) {
+          keyColor = "#CC5C8A";
+        }
+      } else {
+        if (curWrongNote === m) {
+          keyColor = WRONG_KEY_COLOR;
+        } else if (curExpected.has(m) && !curSatisfied.has(m)) {
+          keyColor = EXPECTED_KEY_COLOR;
+        } else if (curSatisfied.has(m)) {
+          keyColor = ACTIVE_KEY_COLOR;
+        } else if (curHeld.has(m)) {
+          keyColor = "#CC5C8A";
+        } else if (activeKeys.has(m)) {
+          keyColor = ACTIVE_KEY_COLOR;
+        }
       }
 
       ctx.fillStyle = keyColor;
@@ -376,8 +431,41 @@ export function PracticeTab({
       }
     }
 
+    // ── Flowing mode: judgment popups ─────────────────────────────
+    if (isFlowing && judgmentsRef.current.length > 0) {
+      const now = performance.now();
+      const activeJudgments: FlowingJudgment[] = [];
+
+      for (const j of judgmentsRef.current) {
+        const age = now - j.createdAt;
+        if (age > JUDGMENT_DURATION_MS) continue;
+        activeJudgments.push(j);
+
+        const progress = age / JUDGMENT_DURATION_MS;
+        const alpha = 1 - progress;
+        const floatOffset = progress * JUDGMENT_FLOAT_PX;
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = j.color;
+        ctx.font = "bold 16px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "bottom";
+
+        // Draw text shadow for readability
+        ctx.shadowColor = "rgba(0,0,0,0.5)";
+        ctx.shadowBlur = 4;
+        ctx.fillText(j.text, j.x, j.y - floatOffset);
+        ctx.shadowBlur = 0;
+        ctx.restore();
+      }
+
+      // Prune expired judgments
+      judgmentsRef.current = activeJudgments;
+    }
+
     // ── Status overlay ────────────────────────────────────────────
-    if (curStatus === "waiting") {
+    if (!isFlowing && curStatus === "waiting") {
       ctx.fillStyle = "rgba(239, 68, 68, 0.12)";
       ctx.fillRect(0, 0, W, playAreaHeight);
 
@@ -443,6 +531,24 @@ export function PracticeTab({
 
   if (loadState !== "ready") return null;
 
+  // ── Compute stats ───────────────────────────────────────────────
+  const isFlowingMode = practiceMode === "flowing";
+
+  // Flowing mode stats
+  const flowingCorrect = sessionLog.filter((e) => e.rating && e.rating !== "miss" && e.correct).length;
+  const flowingMissed = sessionLog.filter((e) => e.rating === "miss").length;
+  const flowingExtra = sessionLog.filter((e) => e.rating === undefined && !e.correct).length;
+  const flowingAccuracy = flowingTotalNotes > 0
+    ? Math.round((flowingCorrect / flowingTotalNotes) * 100)
+    : 0;
+  const ratingCounts = { perfect: 0, great: 0, okay: 0, poor: 0 };
+  for (const e of sessionLog) {
+    if (e.rating && e.rating !== "miss" && e.rating in ratingCounts) {
+      ratingCounts[e.rating as keyof typeof ratingCounts]++;
+    }
+  }
+
+  // Discrete/continuous mode stats
   const progressPct = totalSteps > 0 ? Math.round((currentStepIndex / totalSteps) * 100) : 0;
   const correctCount = sessionLog.filter((e) => e.correct).length;
   const wrongCount = sessionLog.filter((e) => !e.correct).length;
@@ -521,8 +627,8 @@ export function PracticeTab({
           <span className="text-xs text-red-400">No MIDI device</span>
         )}
 
-        {/* Skip step (escape hatch) */}
-        {showSkipButton && status !== "idle" && status !== "complete" && (
+        {/* Skip step (escape hatch) — not shown in flowing mode */}
+        {!isFlowingMode && showSkipButton && status !== "idle" && status !== "complete" && (
           <button
             onClick={skipStep}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-400 hover:bg-amber-500 text-white text-xs font-medium transition animate-in fade-in duration-300"
@@ -532,17 +638,17 @@ export function PracticeTab({
           </button>
         )}
 
-        {/* Discrete / Continuous toggle */}
+        {/* Mode toggle: Flowing / Continuous / Discrete */}
         <div className="flex rounded-full border border-pink-200 bg-white overflow-hidden text-xs font-medium">
           <button
-            onClick={() => setPracticeMode("discrete")}
+            onClick={() => setPracticeMode("flowing")}
             className={`px-3 py-1.5 transition ${
-              practiceMode === "discrete"
+              practiceMode === "flowing"
                 ? "bg-pink-400 text-white"
                 : "text-pink-400 hover:bg-pink-50"
             }`}
           >
-            Discrete
+            Flowing
           </button>
           <button
             onClick={() => setPracticeMode("continuous")}
@@ -554,17 +660,41 @@ export function PracticeTab({
           >
             Continuous
           </button>
+          <button
+            onClick={() => setPracticeMode("discrete")}
+            className={`px-3 py-1.5 transition ${
+              practiceMode === "discrete"
+                ? "bg-pink-400 text-white"
+                : "text-pink-400 hover:bg-pink-50"
+            }`}
+          >
+            Discrete
+          </button>
         </div>
 
-        {/* Progress */}
-        {status !== "idle" && (
+        {/* Progress — discrete/continuous */}
+        {!isFlowingMode && status !== "idle" && (
           <span className="text-xs text-slate-400 tabular-nums">
             Step {Math.min(currentStepIndex + 1, totalSteps)}/{totalSteps} ({progressPct}%)
           </span>
         )}
 
-        {/* Accuracy badge */}
-        {sessionLog.length > 0 && (
+        {/* Accuracy badge — depends on mode */}
+        {isFlowingMode && sessionLog.length > 0 && (
+          <span
+            className={`text-xs font-medium rounded-full px-3 py-1 border ${
+              flowingAccuracy >= 80
+                ? "text-green-600 bg-green-50 border-green-200"
+                : flowingAccuracy >= 50
+                  ? "text-amber-600 bg-amber-50 border-amber-200"
+                  : "text-red-500 bg-red-50 border-red-200"
+            }`}
+          >
+            {flowingAccuracy}% · {ratingCounts.perfect}P {ratingCounts.great}G {ratingCounts.okay}O {ratingCounts.poor}B {flowingMissed}M
+          </span>
+        )}
+
+        {!isFlowingMode && sessionLog.length > 0 && (
           <span
             className={`text-xs font-medium rounded-full px-3 py-1 border ${
               accuracy >= 80
