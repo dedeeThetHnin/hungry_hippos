@@ -274,6 +274,8 @@ function TutorialContent() {
                 isFullscreen={isFullscreen}
                 pianoSwitcher={pianoSwitcherEl}
                 playbackSpeed={playbackSpeed}
+                midiRef={refs.midiRef}
+                pianoFactory={pianoFactory}
               />
             </TabsContent>
 

@@ -27,7 +27,8 @@
     "smplr": "^0.17.0",
     "soundfont-player": "^0.12.0",
     "tailwind-merge": "^3.3.0",
-    "tone": "^15.1.22"
+    "tone": "^15.1.22",
+    "webm-muxer": "^5.1.4"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^0.1.0",
