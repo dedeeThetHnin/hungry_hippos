@@ -40,7 +40,7 @@ We utilized a sophisticated, type-safe stack to ensure every note is captured wi
 * **Production-Ready Full Stack:** Delivering a complete, polished product in a hackathon timeframe. From secure Google Auth and drag-and-drop file parsing to a dynamic Supabase library that stores user sonatas, the app feels premium from end to end.
 
 ## 📖 What we learned
-Building Sakura Sonata taught us that AI is most powerful when used to enhance human creativity and emotion. We learned how to manage real-time data streams—transforming raw MIDI into a fluid visual experience—and how to architect a backend that securely persists a user's musical library. Most importantly, we discovered that the "technical" part of a project (the code) and the "soul" (the aesthetic) must work in perfect harmony.
+Building Sakura Sonata taught us that AI is most powerful when used to enhance human creativity and emotion. Technically, we learned how to bridge the gap between physical hardware and web applications using the Web MIDI API, and how to manage complex audio buffers for real-time instrument switching. We also learned how to manage real-time data streams—transforming raw MIDI and live keyboard inputs into a fluid visual experience—and how to architect a backend that securely persists a user's musical library. Most importantly, we discovered that the "technical" part of a project (the code) and the "soul" (the aesthetic) must work in perfect harmony.
 
 ## ✿ What's next for Sakura Sonata
 * **The "AI Sensei" Vision (OMR):** We plan to train a custom Computer Vision model (OMR) to read and transcribe physical sheet music (PDF, PNG). Users will be able to snap a photo of a handwritten score and see it bloom into a digital performance.
