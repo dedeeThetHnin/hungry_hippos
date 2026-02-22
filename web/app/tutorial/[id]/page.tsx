@@ -51,6 +51,15 @@ function TutorialContent() {
   const { loadState, error, title, bpm, noteCount, trackCount, duration, keySignature, timeSignature } = state;
   const { formatTime } = controls;
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [activeTab, setActiveTab] = useState("falling-notes");
+
+  // Stop audio playback when switching to the Practice tab
+  const handleTabChange = useCallback((tab: string) => {
+    setActiveTab(tab);
+    if (tab === "practice" && state.isPlaying) {
+      controls.stopPlayback();
+    }
+  }, [state.isPlaying, controls]);
 
   const pianoSwitcherEl = (
     <DropdownMenu>
@@ -91,6 +100,8 @@ function TutorialContent() {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && isFullscreen) setIsFullscreen(false);
       if (loadState !== "ready") return;
+      // Disable playback shortcuts when on the Practice tab
+      if (activeTab === "practice") return;
       if (e.key === " ") {
         e.preventDefault();
         controls.togglePlayback();
@@ -106,7 +117,7 @@ function TutorialContent() {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [isFullscreen, loadState, controls]);
+  }, [isFullscreen, loadState, controls, activeTab]);
 
   // ─── Render ─────────────────────────────────────────────
   if (loadState === "error") {
@@ -218,6 +229,7 @@ function TutorialContent() {
         {loadState === "ready" && (
           <Tabs
             defaultValue="falling-notes"
+            onValueChange={handleTabChange}
             className={`w-full ${
               isFullscreen ? "flex-1 flex flex-col min-h-0" : ""
             }`}
