@@ -58,7 +58,7 @@ export function PracticeTab({
   pianoSwitcher,
 }: PracticeTabProps) {
   const { loadState, duration } = state;
-  const { formatTime, getAllNotes, stopPlayback } = controls;
+  const { formatTime, getAllNotes, stopPlayback, togglePlayback, seekTo } = controls;
   const { midiRef, pianoRef } = refs;
 
   const {
@@ -187,10 +187,28 @@ export function PracticeTab({
   }, []);
 
   // ── Stop regular playback when practice starts ──────────────────
-  const handleStart = useCallback(() => {
+  const handleStart = useCallback(async () => {
     stopPlayback();
     start();
-  }, [stopPlayback, start]);
+
+    // In flowing mode, start MIDI audio playback so the user can hear
+    // the reference piece while they play along.
+    if (practiceMode === "flowing") {
+      await togglePlayback();
+      const allNotes = getAllNotes();
+      if (allNotes.length > 0) {
+        const sorted = [...allNotes].sort((a, b) => a.time - b.time);
+        const startOffset = Math.max(0, sorted[0].time - 2);
+        seekTo(startOffset);
+      }
+    }
+  }, [stopPlayback, start, practiceMode, togglePlayback, getAllNotes, seekTo]);
+
+  // ── Stop audio when resetting ───────────────────────────────────
+  const handleReset = useCallback(() => {
+    reset();
+    stopPlayback();
+  }, [reset, stopPlayback]);
 
   // ── AI Feedback ─────────────────────────────────────────────────
   const getFeedback = useCallback(async () => {
@@ -602,7 +620,7 @@ export function PracticeTab({
           </button>
         ) : (
           <button
-            onClick={reset}
+            onClick={handleReset}
             className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-white border border-pink-200 text-pink-500 hover:bg-pink-50 text-sm font-medium transition"
           >
             <RotateCcw className="w-4 h-4" />
