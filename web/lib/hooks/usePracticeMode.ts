@@ -169,6 +169,9 @@ export function usePracticeMode(
   const sessionLogRef = useRef<PracticeLogEntry[]>([]);
   const sessionStartRef = useRef(0);
   const heldNotesRef = useRef<Set<number>>(new Set());
+  /** Notes that must be released and re-pressed before they count as satisfied
+   *  (same note appearing in consecutive steps — re-articulation). */
+  const rearticNeededRef = useRef<Set<number>>(new Set());
 
   /** The real-time practice clock — updated per-frame during sustaining.
    *  The canvas reads from this ref directly for smooth animation. */
@@ -383,9 +386,23 @@ export function usePracticeMode(
     setWrongNote(null);
     audioPlayedRef.current = false;
 
+    // Detect re-articulation: notes that start fresh at this step but were also
+    // starting notes in the previous step. The user must lift and re-press them.
+    const reartic = new Set<number>();
+    if (isContinuous && idx > 0) {
+      const prevStep = currentSteps[idx - 1];
+      for (const m of step.midis) {
+        if (prevStep.midis.has(m)) {
+          reartic.add(m);
+        }
+      }
+    }
+    rearticNeededRef.current = reartic;
+
     // Auto-continue if all expected notes are already held (continuous mode only)
+    // Notes needing re-articulation don't count as held yet.
     const held = heldNotesRef.current;
-    const allHeld = [...required].every((m) => held.has(m));
+    const allHeld = [...required].every((m) => held.has(m) && !reartic.has(m));
 
     if (isContinuous && allHeld) {
       resetSkipTimer();
@@ -421,9 +438,10 @@ export function usePracticeMode(
     const isContinuous = practiceModeRef.current === "continuous";
     const required = isContinuous ? step.requiredMidis : step.midis;
     const held = heldNotesRef.current;
+    const reartic = rearticNeededRef.current;
 
-    // All expected notes must be held
-    if (![...required].every((m) => held.has(m))) return;
+    // All expected notes must be held, and re-articulation notes must have been re-pressed
+    if (![...required].every((m) => held.has(m) && !reartic.has(m))) return;
 
     satisfiedRef.current = new Set(required);
     setSatisfiedMidis(new Set(required));
@@ -504,6 +522,13 @@ export function usePracticeMode(
 
         if (required.has(midi)) {
           // ── Correct note ────────────────────────────────────────
+          // Clear re-articulation flag for this note (user re-pressed it)
+          if (rearticNeededRef.current.has(midi)) {
+            const newReartic = new Set(rearticNeededRef.current);
+            newReartic.delete(midi);
+            rearticNeededRef.current = newReartic;
+          }
+
           const newSatisfied = new Set(satisfiedRef.current);
           newSatisfied.add(midi);
           satisfiedRef.current = newSatisfied;
@@ -541,6 +566,9 @@ export function usePracticeMode(
         newHeld.delete(midi);
         heldNotesRef.current = newHeld;
         setHeldNotes(new Set(newHeld));
+
+        // Releasing a note that needs re-articulation is the first half of
+        // the re-press gesture — keep it in rearticNeeded (cleared on note-on).
 
         const currentSteps = stepsRef.current;
         const idx = stepIndexRef.current;
@@ -616,6 +644,7 @@ export function usePracticeMode(
     sessionLogRef.current = [];
     satisfiedRef.current = new Set();
     heldNotesRef.current = new Set();
+    rearticNeededRef.current = new Set();
     audioPlayedRef.current = false;
 
     const firstStep = allSteps[0];
@@ -643,6 +672,7 @@ export function usePracticeMode(
     satisfiedRef.current = new Set();
     sessionLogRef.current = [];
     heldNotesRef.current = new Set();
+    rearticNeededRef.current = new Set();
     audioPlayedRef.current = false;
 
     practiceTimeRef.current = 0;
