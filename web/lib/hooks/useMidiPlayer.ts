@@ -76,6 +76,7 @@ export function useMidiPlayer(
   const pianoRef = useRef<PianoPlayer | null>(null);
   const disposedRef = useRef(false);
   const playbackSpeedRef = useRef(1);
+  const durationRef = useRef(0);
 
   const partsRef = useRef<Tone.Part[]>([]);
   const progressInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -154,7 +155,9 @@ export function useMidiPlayer(
 
         setNoteCount(totalNotes);
         setTrackCount(midi.tracks.filter((t) => t.notes.length > 0).length);
-        setDuration(maxEnd + LEAD_IN_SEC);
+        const dur = maxEnd + LEAD_IN_SEC;
+        setDuration(dur);
+        durationRef.current = dur;
         setMidiLoaded(true);
       } catch (e: any) {
         setError(e?.message ?? "Failed to load tutorial.");
@@ -280,7 +283,7 @@ export function useMidiPlayer(
 
     transport.schedule(() => {
       stopPlayback();
-    }, duration / speed + 1);
+    }, durationRef.current / speed + 1);
   }
 
   const seekTo = useCallback(
@@ -381,7 +384,7 @@ export function useMidiPlayer(
 
     transport.schedule(() => {
       stopPlayback();
-    }, duration / speed + 1);
+    }, durationRef.current / speed + 1);
 
     transport.start();
     setIsPlaying(true);
@@ -401,7 +404,6 @@ export function useMidiPlayer(
     playbackSpeedRef.current = clamped;
     setPlaybackSpeedState(clamped);
 
-    // If currently playing, reschedule notes at new speed
     const transport = Tone.getTransport();
     if (transport.state === "started") {
       // Convert current transport position back to virtual (original) time
@@ -414,6 +416,14 @@ export function useMidiPlayer(
       setProgress(virtualTime);
       transport.start();
       startProgressTracking();
+    } else if (transport.state === "paused") {
+      // Paused: reschedule at the new speed so resume plays correctly
+      const virtualTime = transport.seconds * oldSpeed;
+      pianoRef.current?.stop();
+      setActiveNotes([]);
+      rescheduleFrom(virtualTime);
+      transport.seconds = virtualTime / clamped;
+      setProgress(virtualTime);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -709,9 +709,10 @@ export function PracticeTab({
   const flowingCorrect = sessionLog.filter((e) => e.rating && e.rating !== "miss" && e.correct).length;
   const flowingMissed = sessionLog.filter((e) => e.rating === "miss").length;
   const flowingExtra = sessionLog.filter((e) => e.rating === undefined && !e.correct).length;
-  const flowingAccuracy = flowingTotalNotes > 0
-    ? Math.round((flowingCorrect / flowingTotalNotes) * 100)
-    : 0;
+  const flowingEvaluated = flowingCorrect + flowingMissed + flowingExtra;
+  const flowingAccuracy = flowingEvaluated > 0
+    ? Math.round((flowingCorrect / flowingEvaluated) * 100)
+    : 100;
   const ratingCounts = { perfect: 0, great: 0, okay: 0, poor: 0 };
   for (const e of sessionLog) {
     if (e.rating && e.rating !== "miss" && e.rating in ratingCounts) {
@@ -726,7 +727,7 @@ export function PracticeTab({
   const accuracy =
     sessionLog.length > 0
       ? Math.round((correctCount / sessionLog.length) * 100)
-      : 0;
+      : 100;
 
   return (
     <div
