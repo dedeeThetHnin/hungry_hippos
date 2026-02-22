@@ -19,16 +19,23 @@ export interface PracticeStep {
   midis: Set<number>;
   /** Full note events (for audio playback) */
   notes: NoteEvent[];
+  /** Longest note duration in this step (seconds) */
+  maxDuration: number;
 }
 
 export type PracticeStatus =
   | "idle"          // waiting for user to click Start
-  | "playing"       // actively practicing — clock advances on correct input
-  | "waiting"       // wrong note was played, waiting for correct note(s)
+  | "playing"       // waiting for user to press the correct notes
+  | "sustaining"    // user holding correct notes, clock advancing in real-time (continuous only)
+  | "waiting"       // wrong note pressed or released, waiting for correct input
   | "complete";     // reached the end of the piece
+
+export type PracticeMode = "discrete" | "continuous";
 
 export interface PracticeModeState {
   status: PracticeStatus;
+  /** Current practice mode */
+  practiceMode: PracticeMode;
   /** Current position in the piece (seconds) — drives falling notes canvas */
   practiceTime: number;
   /** Current step index the user is on */
@@ -59,16 +66,22 @@ export interface PracticeModeControls {
   start: () => void;
   reset: () => void;
   setActiveDevice: (id: string) => void;
+  setPracticeMode: (mode: PracticeMode) => void;
 }
 
-// ── Step builder ──────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────
 
 const CHORD_TOLERANCE_SEC = 0.03; // 30ms — notes within this window = same step
+/** If user holds a note for longer than its duration × this factor, reset step */
+const OVER_HOLD_FACTOR = 1.5;
+/** Minimum effective note duration for the over-hold check (seconds) */
+const MIN_EFFECTIVE_DURATION = 0.3;
+
+// ── Step builder ──────────────────────────────────────────────────────
 
 function buildSteps(allNotes: NoteEvent[]): PracticeStep[] {
   if (allNotes.length === 0) return [];
 
-  // Sort by time, then by midi for stability
   const sorted = [...allNotes].sort((a, b) => a.time - b.time || a.midi - b.midi);
 
   const steps: PracticeStep[] = [];
@@ -80,23 +93,23 @@ function buildSteps(allNotes: NoteEvent[]): PracticeStep[] {
     if (note.time - groupTime <= CHORD_TOLERANCE_SEC) {
       currentGroup.push(note);
     } else {
-      // Flush previous group
       steps.push({
         index: steps.length,
         time: groupTime,
         midis: new Set(currentGroup.map((n) => n.midi)),
         notes: currentGroup,
+        maxDuration: Math.max(...currentGroup.map((n) => n.duration)),
       });
       currentGroup = [note];
       groupTime = note.time;
     }
   }
-  // Flush last group
   steps.push({
     index: steps.length,
     time: groupTime,
     midis: new Set(currentGroup.map((n) => n.midi)),
     notes: currentGroup,
+    maxDuration: Math.max(...currentGroup.map((n) => n.duration)),
   });
 
   return steps;
@@ -109,7 +122,8 @@ export function usePracticeMode(
   pianoRef: React.RefObject<PianoPlayer | null>,
   getAllNotes: () => NoteEvent[],
 ) {
-  // ── State ───────────────────────────────────────────────────────
+  // ── React state (for UI rendering) ─────────────────────────────
+  const [practiceMode, setPracticeModeState] = useState<PracticeMode>("discrete");
   const [status, setStatus] = useState<PracticeStatus>("idle");
   const [practiceTime, setPracticeTime] = useState(0);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -122,20 +136,37 @@ export function usePracticeMode(
   const [error, setError] = useState<string | null>(null);
   const [heldNotes, setHeldNotes] = useState<Set<number>>(new Set());
 
-  // ── Refs (for use in MIDI callback without stale closures) ──────
+  // ── Refs (source of truth for async callbacks — avoids stale closures) ──
   const stepsRef = useRef<PracticeStep[]>([]);
   const stepIndexRef = useRef(0);
   const statusRef = useRef<PracticeStatus>("idle");
+  const practiceModeRef = useRef<PracticeMode>("discrete");
   const satisfiedRef = useRef<Set<number>>(new Set());
   const sessionLogRef = useRef<PracticeLogEntry[]>([]);
   const sessionStartRef = useRef(0);
   const heldNotesRef = useRef<Set<number>>(new Set());
 
-  // Keep refs in sync with state
+  /** The real-time practice clock — updated per-frame during sustaining.
+   *  The canvas reads from this ref directly for smooth animation. */
+  const practiceTimeRef = useRef(0);
+
+  // Sustain animation refs
+  const sustainAnimRef = useRef<number>(0);
+  const sustainBaseWallRef = useRef(0);     // performance.now() when sustain started/resumed
+  const sustainBasePracticeRef = useRef(0); // practiceTime when sustain started/resumed
+  const audioPlayedRef = useRef(false);     // has audio been played for the current step?
+
+  // Keep refs in sync
   useEffect(() => { statusRef.current = status; }, [status]);
+  useEffect(() => { practiceModeRef.current = practiceMode; }, [practiceMode]);
+
+  const setPracticeMode = useCallback((mode: PracticeMode) => {
+    setPracticeModeState(mode);
+    practiceModeRef.current = mode;
+  }, []);
 
   // ── Build steps when MIDI data is available ─────────────────────
-  const steps = useCallback(() => {
+  const buildAllSteps = useCallback(() => {
     const notes = getAllNotes();
     if (notes.length === 0) return [];
     return buildSteps(notes);
@@ -176,49 +207,205 @@ export function usePracticeMode(
     }
   }
 
-  // ── Play reference notes through the piano ──────────────────────
-  const playStepAudio = useCallback(
-    (step: PracticeStep) => {
-      const piano = pianoRef.current;
-      if (!piano) return;
-      Tone.start(); // ensure audio context is running
-      for (const note of step.notes) {
-        piano.start({
-          note: note.name,
-          duration: note.duration,
-          velocity: note.velocity,
-        });
-      }
-    },
-    [pianoRef],
-  );
+  // ── Play step audio (inline helper) ─────────────────────────────
+  function playStepAudioInline(step: PracticeStep) {
+    const piano = pianoRef.current;
+    if (!piano) return;
+    Tone.start();
+    for (const note of step.notes) {
+      piano.start({
+        note: note.name,
+        duration: note.duration,
+        velocity: note.velocity,
+      });
+    }
+  }
 
-  // ── Advance to next step ────────────────────────────────────────
-  const advanceStep = useCallback(
-    (currentSteps: PracticeStep[]) => {
-      const nextIdx = stepIndexRef.current + 1;
-      if (nextIdx >= currentSteps.length) {
-        // Piece complete!
-        setStatus("complete");
-        statusRef.current = "complete";
-        setCurrentStepIndex(nextIdx);
+  // ── Core sustain / navigation functions ─────────────────────────
+  // Defined as plain functions that read exclusively from refs, so they
+  // always get current values. Stored in refs so async callbacks (MIDI
+  // handler, requestAnimationFrame) can call the latest version.
+
+  const startSustainLoopRef = useRef<() => void>(() => {});
+  const goToStepRef = useRef<(idx: number) => void>(() => {});
+  const checkAndResumeRef = useRef<() => void>(() => {});
+
+  /**
+   * Start the real-time sustain animation loop.
+   * Advances practiceTimeRef each frame while status === "sustaining".
+   * Detects: next step boundary, over-hold reset, and piece completion.
+   */
+  function startSustainLoop() {
+    cancelAnimationFrame(sustainAnimRef.current);
+    let lastStateUpdate = performance.now();
+
+    function tick() {
+      if (statusRef.current !== "sustaining") return;
+
+      const now = performance.now();
+      const elapsed = (now - sustainBaseWallRef.current) / 1000;
+      const newTime = sustainBasePracticeRef.current + elapsed;
+
+      const currentSteps = stepsRef.current;
+      const idx = stepIndexRef.current;
+      if (idx >= currentSteps.length) return;
+
+      const step = currentSteps[idx];
+      const effectiveDuration = Math.max(MIN_EFFECTIVE_DURATION, step.maxDuration);
+      const nextIdx = idx + 1;
+
+      // ── Next step check (priority — must fire before over-hold) ───
+      if (nextIdx < currentSteps.length) {
+        if (newTime >= currentSteps[nextIdx].time) {
+          cancelAnimationFrame(sustainAnimRef.current);
+          goToStepRef.current(nextIdx);
+          return;
+        }
+      } else {
+        // Last step — complete when note duration is finished
+        if (newTime >= step.time + effectiveDuration) {
+          cancelAnimationFrame(sustainAnimRef.current);
+          practiceTimeRef.current = newTime;
+          setPracticeTime(newTime);
+          setStatus("complete");
+          statusRef.current = "complete";
+          setCurrentStepIndex(nextIdx);
+          return;
+        }
+      }
+
+      // ── Over-hold check: held too long → reset to step beginning ──
+      // Use the gap to the next step as a floor so we never reset before
+      // the clock could naturally reach the next step boundary.
+      const gapToNext =
+        nextIdx < currentSteps.length
+          ? currentSteps[nextIdx].time - step.time
+          : effectiveDuration;
+      const overHoldLimit =
+        step.time + Math.max(effectiveDuration, gapToNext) * OVER_HOLD_FACTOR;
+
+      if (newTime >= overHoldLimit) {
+        cancelAnimationFrame(sustainAnimRef.current);
+        practiceTimeRef.current = step.time;
+        setPracticeTime(step.time);
+        satisfiedRef.current = new Set();
+        setSatisfiedMidis(new Set());
+        audioPlayedRef.current = false;
+        setStatus("playing");
+        statusRef.current = "playing";
+        setWrongNote(null);
         return;
       }
 
-      stepIndexRef.current = nextIdx;
-      setCurrentStepIndex(nextIdx);
+      // ── Normal tick — advance time ────────────────────────────────
+      practiceTimeRef.current = newTime;
 
-      const nextStep = currentSteps[nextIdx];
-      setPracticeTime(nextStep.time);
-      setExpectedMidis(new Set(nextStep.midis));
-      setSatisfiedMidis(new Set());
-      satisfiedRef.current = new Set();
-      setWrongNote(null);
+      // Throttled React state update (100ms) for the UI time display
+      if (now - lastStateUpdate > 100) {
+        setPracticeTime(newTime);
+        lastStateUpdate = now;
+      }
+
+      sustainAnimRef.current = requestAnimationFrame(tick);
+    }
+
+    sustainAnimRef.current = requestAnimationFrame(tick);
+  }
+
+  /**
+   * Move to a specific step index. If the new step's expected notes
+   * are already held, auto-continue sustaining (handles sustained passages).
+   */
+  function goToStep(idx: number) {
+    cancelAnimationFrame(sustainAnimRef.current);
+    const currentSteps = stepsRef.current;
+
+    stepIndexRef.current = idx;
+    setCurrentStepIndex(idx);
+
+    if (idx >= currentSteps.length) {
+      setStatus("complete");
+      statusRef.current = "complete";
+      return;
+    }
+
+    const step = currentSteps[idx];
+    practiceTimeRef.current = step.time;
+    setPracticeTime(step.time);
+    setExpectedMidis(new Set(step.midis));
+    satisfiedRef.current = new Set();
+    setSatisfiedMidis(new Set());
+    setWrongNote(null);
+    audioPlayedRef.current = false;
+
+    // Auto-continue if all expected notes are already held (continuous mode only)
+    const held = heldNotesRef.current;
+    const allHeld = [...step.midis].every((m) => held.has(m));
+
+    if (practiceModeRef.current === "continuous" && allHeld) {
+      satisfiedRef.current = new Set(step.midis);
+      setSatisfiedMidis(new Set(step.midis));
+      playStepAudioInline(step);
+      audioPlayedRef.current = true;
+      sustainBaseWallRef.current = performance.now();
+      sustainBasePracticeRef.current = step.time;
+      setStatus("sustaining");
+      statusRef.current = "sustaining";
+      startSustainLoopRef.current();
+    } else {
       setStatus("playing");
       statusRef.current = "playing";
-    },
-    [],
-  );
+    }
+  }
+
+  /**
+   * Check if we can start/resume sustaining: all expected notes must be held.
+   * Called after note-on of a correct note, or after a wrong note is released.
+   */
+  function checkAndResume() {
+    const st = statusRef.current;
+    if (st !== "waiting" && st !== "playing") return;
+
+    const idx = stepIndexRef.current;
+    const currentSteps = stepsRef.current;
+    if (idx >= currentSteps.length) return;
+
+    const step = currentSteps[idx];
+    const held = heldNotesRef.current;
+
+    // All expected notes must be held
+    if (![...step.midis].every((m) => held.has(m))) return;
+
+    satisfiedRef.current = new Set(step.midis);
+    setSatisfiedMidis(new Set(step.midis));
+
+    // Play audio only on first entry to this step
+    if (!audioPlayedRef.current) {
+      playStepAudioInline(step);
+      audioPlayedRef.current = true;
+    }
+
+    if (practiceModeRef.current === "discrete") {
+      // Discrete: instantly advance to the next step
+      setWrongNote(null);
+      const nextIdx = idx + 1;
+      goToStepRef.current(nextIdx);
+      return;
+    }
+
+    // Continuous: start the real-time sustain clock
+    sustainBaseWallRef.current = performance.now();
+    sustainBasePracticeRef.current = practiceTimeRef.current;
+    setWrongNote(null);
+    setStatus("sustaining");
+    statusRef.current = "sustaining";
+    startSustainLoopRef.current();
+  }
+
+  // Keep function refs current (updated every render)
+  startSustainLoopRef.current = startSustainLoop;
+  goToStepRef.current = goToStep;
+  checkAndResumeRef.current = checkAndResume;
 
   // ── Attach MIDI input listener ──────────────────────────────────
   useEffect(() => {
@@ -232,14 +419,14 @@ export function usePracticeMode(
 
     device.ref.onmidimessage = (msg: MIDIMessageEvent) => {
       const st = statusRef.current;
-      if (st !== "playing" && st !== "waiting") return;
+      if (st !== "playing" && st !== "waiting" && st !== "sustaining") return;
 
       const data = msg.data;
       if (!data || data.length < 3) return;
       const [s, midi, velocity] = data;
       const type = s & 0xf0;
 
-      // Note-on
+      // ── Note-on ─────────────────────────────────────────────────
       if (type === 0x90 && velocity > 0) {
         // Track held notes
         const newHeld = new Set(heldNotesRef.current);
@@ -252,66 +439,101 @@ export function usePracticeMode(
         if (idx >= currentSteps.length) return;
 
         const step = currentSteps[idx];
-        const expected = step.midis;
+
+        // Log the key press
         const logEntry: PracticeLogEntry = {
           stepIndex: idx,
-          expectedMidis: [...expected],
+          expectedMidis: [...step.midis],
           playedMidi: midi,
-          correct: expected.has(midi),
+          correct: step.midis.has(midi),
           timestamp: performance.now() - sessionStartRef.current,
         };
         sessionLogRef.current = [...sessionLogRef.current, logEntry];
         setSessionLog([...sessionLogRef.current]);
 
-        if (expected.has(midi)) {
-          // Correct note!
+        if (step.midis.has(midi)) {
+          // ── Correct note ────────────────────────────────────────
           const newSatisfied = new Set(satisfiedRef.current);
           newSatisfied.add(midi);
           satisfiedRef.current = newSatisfied;
           setSatisfiedMidis(new Set(newSatisfied));
           setWrongNote(null);
 
-          // Check if all notes in step are satisfied
-          const allSatisfied = [...expected].every((m) => newSatisfied.has(m));
-          if (allSatisfied) {
-            // Play the reference audio for this step
-            playStepAudio(step);
-            // Advance to next step
-            advanceStep(currentSteps);
-          } else {
-            // Still waiting for more notes in this chord
-            setStatus("playing");
-            statusRef.current = "playing";
-          }
+          // Check if all notes satisfied → can start/resume sustaining
+          checkAndResumeRef.current();
         } else {
-          // Wrong note!
+          // ── Wrong note ──────────────────────────────────────────
           setWrongNote(midi);
+
+          if (st === "sustaining") {
+            // Pause the sustain loop, freeze practice time
+            cancelAnimationFrame(sustainAnimRef.current);
+            const frozenTime = practiceTimeRef.current;
+            setPracticeTime(frozenTime);
+          }
+
           setStatus("waiting");
           statusRef.current = "waiting";
-          // Clear wrong note highlight after a short delay
+
+          // Clear wrong-note highlight after 800ms, then try to auto-resume
           setTimeout(() => {
             setWrongNote((prev) => (prev === midi ? null : prev));
+            // After clearing, check if all expected are still held → resume
+            checkAndResumeRef.current();
           }, 800);
         }
       }
 
-      // Note-off
+      // ── Note-off ────────────────────────────────────────────────
       if (type === 0x80 || (type === 0x90 && velocity === 0)) {
         const newHeld = new Set(heldNotesRef.current);
         newHeld.delete(midi);
         heldNotesRef.current = newHeld;
         setHeldNotes(new Set(newHeld));
+
+        const currentSteps = stepsRef.current;
+        const idx = stepIndexRef.current;
+        if (idx >= currentSteps.length) return;
+
+        const step = currentSteps[idx];
+
+        if (statusRef.current === "sustaining" && step.midis.has(midi)) {
+          // Correct note released during sustain — pause clock
+          cancelAnimationFrame(sustainAnimRef.current);
+          const frozenTime = practiceTimeRef.current;
+          setPracticeTime(frozenTime);
+
+          const newSatisfied = new Set(satisfiedRef.current);
+          newSatisfied.delete(midi);
+          satisfiedRef.current = newSatisfied;
+          setSatisfiedMidis(new Set(newSatisfied));
+
+          setStatus("playing");
+          statusRef.current = "playing";
+        } else if (step.midis.has(midi)) {
+          // Correct note released while not sustaining
+          const newSatisfied = new Set(satisfiedRef.current);
+          newSatisfied.delete(midi);
+          satisfiedRef.current = newSatisfied;
+          setSatisfiedMidis(new Set(newSatisfied));
+        }
+
+        // If in waiting state and a note was released, try to resume
+        if (statusRef.current === "waiting") {
+          checkAndResumeRef.current();
+        }
       }
     };
 
     return () => {
       device.ref.onmidimessage = null;
     };
-  }, [activeDevice, midiDevices, playStepAudio, advanceStep]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDevice, midiDevices]);
 
   // ── Start practice ──────────────────────────────────────────────
   const start = useCallback(() => {
-    const allSteps = steps();
+    const allSteps = buildAllSteps();
     if (allSteps.length === 0) {
       setError("No notes in this score.");
       return;
@@ -321,14 +543,18 @@ export function usePracticeMode(
     const transport = Tone.getTransport();
     transport.pause();
 
+    cancelAnimationFrame(sustainAnimRef.current);
+
     stepsRef.current = allSteps;
     stepIndexRef.current = 0;
     sessionStartRef.current = performance.now();
     sessionLogRef.current = [];
     satisfiedRef.current = new Set();
     heldNotesRef.current = new Set();
+    audioPlayedRef.current = false;
 
     const firstStep = allSteps[0];
+    practiceTimeRef.current = firstStep.time;
     setPracticeTime(firstStep.time);
     setCurrentStepIndex(0);
     setExpectedMidis(new Set(firstStep.midis));
@@ -339,16 +565,20 @@ export function usePracticeMode(
     setHeldNotes(new Set());
     setStatus("playing");
     statusRef.current = "playing";
-  }, [steps]);
+  }, [buildAllSteps]);
 
   // ── Reset ───────────────────────────────────────────────────────
   const reset = useCallback(() => {
+    cancelAnimationFrame(sustainAnimRef.current);
+
     stepsRef.current = [];
     stepIndexRef.current = 0;
     satisfiedRef.current = new Set();
     sessionLogRef.current = [];
     heldNotesRef.current = new Set();
+    audioPlayedRef.current = false;
 
+    practiceTimeRef.current = 0;
     setPracticeTime(0);
     setCurrentStepIndex(0);
     setExpectedMidis(new Set());
@@ -361,9 +591,15 @@ export function usePracticeMode(
     statusRef.current = "idle";
   }, []);
 
+  // ── Cleanup on unmount ──────────────────────────────────────────
+  useEffect(() => {
+    return () => { cancelAnimationFrame(sustainAnimRef.current); };
+  }, []);
+
   return {
     state: {
       status,
+      practiceMode,
       practiceTime,
       currentStepIndex,
       totalSteps: stepsRef.current.length,
@@ -381,7 +617,10 @@ export function usePracticeMode(
       start,
       reset,
       setActiveDevice,
+      setPracticeMode,
     } satisfies PracticeModeControls,
     stepsRef,
+    /** Real-time practice clock ref — read by the canvas draw loop for smooth animation */
+    practiceTimeRef,
   };
 }

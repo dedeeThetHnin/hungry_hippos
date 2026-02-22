@@ -60,10 +60,12 @@ export function PracticeTab({
     state: practiceState,
     controls: practiceControls,
     stepsRef,
+    practiceTimeRef,
   } = usePracticeMode(midiRef, pianoRef, getAllNotes);
 
   const {
     status,
+    practiceMode,
     practiceTime,
     currentStepIndex,
     totalSteps,
@@ -78,7 +80,7 @@ export function PracticeTab({
     heldNotes,
   } = practiceState;
 
-  const { start, reset, setActiveDevice } = practiceControls;
+  const { start, reset, setActiveDevice, setPracticeMode } = practiceControls;
 
   // ── AI Feedback state ───────────────────────────────────────────
   const [feedbackText, setFeedbackText] = useState<string | null>(null);
@@ -131,10 +133,6 @@ export function PracticeTab({
     const kb = buildKeyLayout(minMidi, maxMidi);
     return { ...kb, minMidi, maxMidi };
   }, [getAllNotes]);
-
-  // ── Practice time ref (for animation loop without stale closure) ─
-  const practiceTimeRef = useRef(practiceTime);
-  useEffect(() => { practiceTimeRef.current = practiceTime; }, [practiceTime]);
 
   const expectedMidisRef = useRef(expectedMidis);
   useEffect(() => { expectedMidisRef.current = expectedMidis; }, [expectedMidis]);
@@ -521,6 +519,30 @@ export function PracticeTab({
         ) : (
           <span className="text-xs text-red-400">No MIDI device</span>
         )}
+
+        {/* Discrete / Continuous toggle */}
+        <div className="flex rounded-full border border-pink-200 bg-white overflow-hidden text-xs font-medium">
+          <button
+            onClick={() => setPracticeMode("discrete")}
+            className={`px-3 py-1.5 transition ${
+              practiceMode === "discrete"
+                ? "bg-pink-400 text-white"
+                : "text-pink-400 hover:bg-pink-50"
+            }`}
+          >
+            Discrete
+          </button>
+          <button
+            onClick={() => setPracticeMode("continuous")}
+            className={`px-3 py-1.5 transition ${
+              practiceMode === "continuous"
+                ? "bg-pink-400 text-white"
+                : "text-pink-400 hover:bg-pink-50"
+            }`}
+          >
+            Continuous
+          </button>
+        </div>
 
         {/* Progress */}
         {status !== "idle" && (
