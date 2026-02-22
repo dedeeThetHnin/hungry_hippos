@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { ChevronLeft } from "lucide-react";
 
 export function LoginForm({
   className,
@@ -59,18 +60,27 @@ export function LoginForm({
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       {/* 1. Added rounded-[2rem] for that extra-cute soft corner look */}
+
+      <Link
+        href="/"
+        className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-pink-400 transition-colors self-start"
+      >
+        <ChevronLeft className="w-4 h-4" />
+        Back to home
+      </Link>
+
       <Card className="rounded-[2.5rem] border-pink-100 shadow-xl bg-white/90 backdrop-blur-sm px-4 py-6">
         <CardHeader className="text-center">
           {/* Tabs UI from your screenshot */}
           <div className="flex bg-[#F3F0F5] rounded-full p-1 mb-6 w-full max-w-[280px] mx-auto">
             <button className="flex-1 py-2 px-4 rounded-full bg-pink-200 text-sm font-medium">
-              Sign In
+              Log in
             </button>
             <Link
               href="/auth/sign-up"
               className="flex-1 py-2 px-4 rounded-full text-sm font-medium text-gray-500 hover:text-gray-700"
             >
-              Sign Up
+              Sign up
             </Link>
           </div>
 
