@@ -26,7 +26,7 @@ const features = [
 
 export default function Home() {
   return (
-    <main className="relative min-h-screen bg-sakura-bg font-inter">
+    <main className="relative min-h-screen bg-sakura-bg font-inter scrollbar-hide">
       <SakuraBackground />
 
       <div className="relative z-10 flex flex-col items-center">

@@ -87,7 +87,7 @@ export default function DashboardPage() {
           />
         </div>
 
-        <main className="flex-1 p-10 pb-32 overflow-y-auto">
+        <main className="h-full p-10 pb-32 overflow-y-auto scrollbar-hide">
           <div className="mb-8 mt-20">
             <h1 className="text-5xl font-bold text-sakura-text-pink mb-2">My Sonatas</h1>
             < p className="text-sakura-dark/50 text-lg">Your collection of music compositions</p>
