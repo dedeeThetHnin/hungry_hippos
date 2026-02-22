@@ -7,6 +7,9 @@ import * as Tone from "tone";
 import type { PianoPlayer, PianoPlayerFactory } from "@/lib/piano";
 import { splendidPiano } from "@/lib/piano";
 
+/** Seconds of silence prepended so the user can prepare before notes begin. */
+export const LEAD_IN_SEC = 1;
+
 export type LoadState = "loading" | "ready" | "error";
 
 export interface NoteEvent {
@@ -151,7 +154,7 @@ export function useMidiPlayer(
 
         setNoteCount(totalNotes);
         setTrackCount(midi.tracks.filter((t) => t.notes.length > 0).length);
-        setDuration(maxEnd);
+        setDuration(maxEnd + LEAD_IN_SEC);
         setMidiLoaded(true);
       } catch (e: any) {
         setError(e?.message ?? "Failed to load tutorial.");
@@ -263,7 +266,7 @@ export function useMidiPlayer(
           }, note.originalDuration * 1000 / speed);
         },
         track.notes.map((n) => ({
-          time: n.time / speed,
+          time: (n.time + LEAD_IN_SEC) / speed,
           name: n.name,
           duration: n.duration / speed,
           originalDuration: n.duration,
@@ -364,7 +367,7 @@ export function useMidiPlayer(
           }, note.originalDuration * 1000 / speed);
         },
         track.notes.map((n) => ({
-          time: n.time / speed,
+          time: (n.time + LEAD_IN_SEC) / speed,
           name: n.name,
           duration: n.duration / speed,
           originalDuration: n.duration,
@@ -422,7 +425,7 @@ export function useMidiPlayer(
     midi.tracks.forEach((track, trackIndex) => {
       track.notes.forEach((n) => {
         notes.push({
-          time: n.time,
+          time: n.time + LEAD_IN_SEC,
           duration: n.duration,
           midi: n.midi,
           name: n.name,
