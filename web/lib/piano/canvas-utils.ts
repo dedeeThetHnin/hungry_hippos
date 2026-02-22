@@ -80,3 +80,9 @@ export const HIT_LINE_COLOR = "rgba(255,126,182,0.45)";
 export const EXPECTED_KEY_COLOR = "#4ADE80"; // green glow for expected notes
 export const WRONG_KEY_COLOR = "#EF4444"; // red flash for wrong notes
 export const WAITING_OVERLAY_COLOR = "rgba(255,255,255,0.08)";
+
+// Flowing-mode judgment colours
+export const JUDGMENT_PERFECT_COLOR = "#4ADE80"; // green
+export const JUDGMENT_GREAT_COLOR = "#60A5FA";   // blue
+export const JUDGMENT_OKAY_COLOR = "#FBBF24";    // amber
+export const JUDGMENT_POOR_COLOR = "#EF4444";    // red
