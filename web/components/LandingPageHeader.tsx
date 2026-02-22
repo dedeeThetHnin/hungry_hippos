@@ -15,13 +15,13 @@ export function LandingPageHeader() {
             href="/auth/login"
             className="rounded-full border border-sakura-pink px-5 py-2 text-sm font-medium text-sakura-pink transition-colors hover:bg-sakura-pink/10"
           >
-            Sign In
+            Log in
           </Link>
           <Link
             href="/auth/sign-up"
             className="rounded-full bg-sakura-pink px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-sakura-pink/90 shadow-sm"
           >
-            Sign Up
+            Sign up
           </Link>
         </div>
       </div>
