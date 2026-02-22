@@ -16,6 +16,7 @@ type PracticeSummary = {
   topWrong: { midi: number; note: string; count: number }[];
   topMissed: { midi: number; note: string; count: number }[];
   hotspots: { step: number; fails: number }[];
+  playbackSpeed: number;
 };
 
 // ── Prompt builders ──────────────────────────────────────────────────
@@ -25,6 +26,7 @@ function describeSummary(s: PracticeSummary): string {
 
   lines.push(`Piece: "${s.pieceTitle}"`);
   lines.push(`Practice mode: ${s.mode}`);
+  lines.push(`Playback speed: ${s.playbackSpeed}x`);
   lines.push(`The piece has ${s.totalSteps} note steps in total.`);
   lines.push(
     `In this single practice run the student was evaluated on ${s.attempts} individual note events: ` +
@@ -69,6 +71,7 @@ Context:
 - "wrong notes" = keys the student pressed that were not expected.
 - "missed notes" = expected keys the student failed to press.
 - "hotspots" = specific steps (parts of the song) where the student failed most often.
+- "playback speed" = the speed at which the song was played (1x is normal speed, <1x is slower, >1x is faster).
 
 Student's results from this practice run:
 ${describeSummary(summary)}
@@ -80,6 +83,7 @@ Requirements:
 - Name the top 1–2 specific recurring problem notes or hotspots. If mentioning hotspots,
   explain that they are struggling with a specific section of the song (e.g. "around step 45").
 - Give exactly 3 concise, actionable practice tips as markdown bullet points.
+- If the playback speed is less than 1x, encourage them to keep practicing at a slow speed until they are comfortable. If it is 1x or higher, praise them for practicing at tempo.
 - Scale your tone to the accuracy: ≥80% → celebratory, 40-79% → encouraging,
   <40% → empathetic and motivating (never discouraging).
 - Never mention "JSON", "data", "API", "note events", or "MIDI numbers".

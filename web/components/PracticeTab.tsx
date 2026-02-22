@@ -70,6 +70,7 @@ type PracticeSummary = {
   topWrong: { midi: number; note: string; count: number }[];
   topMissed: { midi: number; note: string; count: number }[];
   hotspots: { step: number; fails: number }[];
+  playbackSpeed: number;
 };
 
 function buildPracticeSummary(args: {
@@ -77,8 +78,9 @@ function buildPracticeSummary(args: {
   totalSteps: number;
   pieceTitle: string;
   mode: "discrete" | "continuous" | "flowing";
+  playbackSpeed: number;
 }): PracticeSummary {
-  const { sessionLog, totalSteps, pieceTitle, mode } = args;
+  const { sessionLog, totalSteps, pieceTitle, mode, playbackSpeed } = args;
 
   // We keep this very defensive so it works with your existing sessionLog shape.
   // If you later add fields like { step, expected, played, wrong, missed }, the summary gets richer.
@@ -166,6 +168,7 @@ function buildPracticeSummary(args: {
     topWrong: topN(wrongByMidi),
     topMissed: topN(missedByMidi),
     hotspots,
+    playbackSpeed,
   };
 }
 
@@ -322,6 +325,7 @@ export function PracticeTab({
 
   // ── Stop regular playback when practice starts ──────────────────
   const handleStart = useCallback(async () => {
+    if (midiDevices.length === 0) return;
     stopPlayback();
     start();
 
@@ -341,7 +345,7 @@ export function PracticeTab({
     setFeedbackText(null);
     setFeedbackError(null);
     setShowFeedback(false);
-  }, [stopPlayback, start, practiceMode, togglePlayback, getAllNotes, seekTo]);
+  }, [stopPlayback, start, practiceMode, togglePlayback, getAllNotes, seekTo, midiDevices.length]);
 
   // ── Stop audio when resetting ───────────────────────────────────
   const handleReset = useCallback(() => {
@@ -362,6 +366,7 @@ export function PracticeTab({
         totalSteps,
         pieceTitle: state.title || "this piece",
         mode: practiceMode,
+        playbackSpeed,
       });
       const res = await fetch("/api/piano-feedback", {
         method: "POST",
@@ -380,7 +385,7 @@ export function PracticeTab({
     } finally {
       setFeedbackLoading(false);
     }
-  }, [sessionLog, totalSteps, flowingTotalNotes, practiceMode, state.title]);
+  }, [sessionLog, totalSteps, flowingTotalNotes, practiceMode, state.title, playbackSpeed]);
 
   // ── Render loop ─────────────────────────────────────────────────
   const draw = useCallback(() => {
@@ -747,12 +752,22 @@ export function PracticeTab({
         {status === "idle" && (
           <button
             onClick={handleStart}
-            className="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/30 transition-colors group"
+            disabled={midiDevices.length === 0}
+            className={`absolute inset-0 flex items-center justify-center bg-black/20 transition-colors group ${
+              midiDevices.length === 0 ? "cursor-not-allowed" : "hover:bg-black/30"
+            }`}
             aria-label="Start Practice"
           >
-            <div className="w-16 h-16 rounded-full bg-green-400/90 group-hover:bg-green-500 flex items-center justify-center shadow-xl transition-colors">
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center shadow-xl transition-colors ${
+              midiDevices.length === 0 ? "bg-gray-400/90" : "bg-green-400/90 group-hover:bg-green-500"
+            }`}>
               <Play className="w-7 h-7 text-white ml-1" />
             </div>
+            {midiDevices.length === 0 && (
+              <div className="absolute mt-24 text-white font-medium bg-black/50 px-4 py-2 rounded-full">
+                Please connect a MIDI device to start
+              </div>
+            )}
           </button>
         )}
       </div>
