@@ -9,8 +9,6 @@ An AI-powered music visualization engine that transforms static MIDI files and l
   <em>The "Sakura Storm" Visualizer in action — where music meets aesthetic.</em>
 </p>
 
-what is tht for?
-
 ## ✦ Inspiration
 Digital music files can feel like invisible data. We wanted to bridge the gap between these static MIDI files and the vibrant, rhythmic energy of a live performance. We took the elegance of Japanese aesthetics and the soul of a piano sonata to create **Sakura Sonata**—a platform where your digital music doesn't just get played, it blooms.
 
