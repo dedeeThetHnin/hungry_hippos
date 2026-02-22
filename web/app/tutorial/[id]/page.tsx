@@ -18,6 +18,7 @@ import {
 import { AudioPlayerTab } from "@/components/AudioPlayerTab";
 import { FallingNotesTab } from "@/components/FallingNotesTab";
 import { PracticeTab } from "@/components/PracticeTab";
+import { PlaybackSpeedControl } from "@/components/PlaybackSpeedControl";
 import { useMidiPlayer } from "@/lib/hooks/useMidiPlayer";
 import type { PianoPlayerFactory } from "@/lib/piano";
 import { splendidPiano, salamanderPiano, soundfontPiano } from "@/lib/piano";
@@ -48,8 +49,8 @@ function TutorialContent() {
   const [pianoKey, setPianoKey] = useState("splendid");
   const pianoFactory = PIANO_OPTIONS.find((o) => o.value === pianoKey)!.factory;
   const { state, controls, refs } = useMidiPlayer(id, pianoFactory);
-  const { loadState, error, title, bpm, noteCount, trackCount, duration, keySignature, timeSignature } = state;
-  const { formatTime } = controls;
+  const { loadState, error, title, bpm, noteCount, trackCount, duration, keySignature, timeSignature, playbackSpeed } = state;
+  const { formatTime, setPlaybackSpeed } = controls;
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [activeTab, setActiveTab] = useState("falling-notes");
 
@@ -227,6 +228,7 @@ function TutorialContent() {
 
         {/* Tabs */}
         {loadState === "ready" && (
+          <>
           <Tabs
             defaultValue="falling-notes"
             onValueChange={handleTabChange}
@@ -271,6 +273,7 @@ function TutorialContent() {
                 controls={controls}
                 isFullscreen={isFullscreen}
                 pianoSwitcher={pianoSwitcherEl}
+                playbackSpeed={playbackSpeed}
               />
             </TabsContent>
 
@@ -292,9 +295,20 @@ function TutorialContent() {
                 refs={refs}
                 isFullscreen={isFullscreen}
                 pianoSwitcher={pianoSwitcherEl}
+                playbackSpeed={playbackSpeed}
               />
             </TabsContent>
           </Tabs>
+
+          {/* Playback speed control */}
+          <div className="mt-4">
+            <PlaybackSpeedControl
+              playbackSpeed={playbackSpeed}
+              setPlaybackSpeed={setPlaybackSpeed}
+              originalBpm={bpm}
+            />
+          </div>
+          </>
         )}
       </div>
     </div>

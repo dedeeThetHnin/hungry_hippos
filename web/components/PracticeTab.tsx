@@ -49,6 +49,7 @@ interface PracticeTabProps {
   refs: MidiPlayerRefs;
   isFullscreen?: boolean;
   pianoSwitcher?: React.ReactNode;
+  playbackSpeed?: number;
 }
 
 // ── In-memory summary (no DB) ─────────────────────────────────────────
@@ -176,6 +177,7 @@ export function PracticeTab({
   refs,
   isFullscreen = false,
   pianoSwitcher,
+  playbackSpeed = 1,
 }: PracticeTabProps) {
   const { loadState, duration } = state;
   const { formatTime, getAllNotes, stopPlayback, togglePlayback, seekTo } = controls;
@@ -191,7 +193,7 @@ export function PracticeTab({
     judgmentsRef,
     flowingAllNotesRef,
     flowingMatchedRef,
-  } = usePracticeMode(midiRef, pianoRef, getAllNotes, layoutInfoRef);
+  } = usePracticeMode(midiRef, pianoRef, getAllNotes, layoutInfoRef, playbackSpeed);
 
   const {
     status,
