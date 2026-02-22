@@ -20,7 +20,7 @@ const features = [
     icon: Download,
     title: "Export Anywhere",
     description:
-      "Download your visualizations as video tutorials, MIDI files, or share interactive links with students and collaborators.",
+      "Download your visualizations as video tutorials in .webm format, perfect for sharing on social media or reviewing on any device.",
   },
 ];
 
