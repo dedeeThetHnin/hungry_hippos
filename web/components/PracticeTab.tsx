@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useMemo, useState } from "react";
-import { Play, RotateCcw, Sparkles, Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import { Play, RotateCcw, Sparkles, Loader2, ChevronDown, ChevronUp, SkipForward } from "lucide-react";
 import type {
   MidiPlayerState,
   MidiPlayerControls,
@@ -78,9 +78,10 @@ export function PracticeTab({
     isComplete,
     error,
     heldNotes,
+    showSkipButton,
   } = practiceState;
 
-  const { start, reset, setActiveDevice, setPracticeMode } = practiceControls;
+  const { start, reset, skipStep, setActiveDevice, setPracticeMode } = practiceControls;
 
   // ── AI Feedback state ───────────────────────────────────────────
   const [feedbackText, setFeedbackText] = useState<string | null>(null);
@@ -518,6 +519,17 @@ export function PracticeTab({
           </select>
         ) : (
           <span className="text-xs text-red-400">No MIDI device</span>
+        )}
+
+        {/* Skip step (escape hatch) */}
+        {showSkipButton && status !== "idle" && status !== "complete" && (
+          <button
+            onClick={skipStep}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-400 hover:bg-amber-500 text-white text-xs font-medium transition animate-in fade-in duration-300"
+          >
+            <SkipForward className="w-3.5 h-3.5" />
+            Skip
+          </button>
         )}
 
         {/* Discrete / Continuous toggle */}

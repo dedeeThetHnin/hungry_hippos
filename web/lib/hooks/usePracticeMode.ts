@@ -17,6 +17,8 @@ export interface PracticeStep {
   time: number;
   /** Set of MIDI note numbers expected at this step */
   midis: Set<number>;
+  /** All MIDI notes that must be held at this step (own midis + sustained from prior steps) */
+  requiredMidis: Set<number>;
   /** Full note events (for audio playback) */
   notes: NoteEvent[];
   /** Longest note duration in this step (seconds) */
@@ -60,11 +62,14 @@ export interface PracticeModeState {
   error: string | null;
   /** MIDI notes currently being held down by the user */
   heldNotes: Set<number>;
+  /** Whether the skip button should be visible (after 3s stuck on a step) */
+  showSkipButton: boolean;
 }
 
 export interface PracticeModeControls {
   start: () => void;
   reset: () => void;
+  skipStep: () => void;
   setActiveDevice: (id: string) => void;
   setPracticeMode: (mode: PracticeMode) => void;
 }
@@ -97,6 +102,7 @@ function buildSteps(allNotes: NoteEvent[]): PracticeStep[] {
         index: steps.length,
         time: groupTime,
         midis: new Set(currentGroup.map((n) => n.midi)),
+        requiredMidis: new Set(),  // placeholder — filled in second pass
         notes: currentGroup,
         maxDuration: Math.max(...currentGroup.map((n) => n.duration)),
       });
@@ -108,9 +114,26 @@ function buildSteps(allNotes: NoteEvent[]): PracticeStep[] {
     index: steps.length,
     time: groupTime,
     midis: new Set(currentGroup.map((n) => n.midi)),
+    requiredMidis: new Set(),  // placeholder — filled in second pass
     notes: currentGroup,
     maxDuration: Math.max(...currentGroup.map((n) => n.duration)),
   });
+
+  // Second pass: compute requiredMidis for each step.
+  // A step's requiredMidis = its own midis PLUS any notes from earlier steps
+  // whose duration extends past this step's start time (i.e. still sounding).
+  for (const step of steps) {
+    const required = new Set(step.midis);
+    for (const note of sorted) {
+      // Only consider notes that started strictly before this step
+      if (note.time >= step.time - CHORD_TOLERANCE_SEC) continue;
+      // Note still sounding at this step's time
+      if (note.time + note.duration > step.time + CHORD_TOLERANCE_SEC) {
+        required.add(note.midi);
+      }
+    }
+    step.requiredMidis = required;
+  }
 
   return steps;
 }
@@ -135,6 +158,7 @@ export function usePracticeMode(
   const [sessionLog, setSessionLog] = useState<PracticeLogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [heldNotes, setHeldNotes] = useState<Set<number>>(new Set());
+  const [showSkipButton, setShowSkipButton] = useState(false);
 
   // ── Refs (source of truth for async callbacks — avoids stale closures) ──
   const stepsRef = useRef<PracticeStep[]>([]);
@@ -155,6 +179,7 @@ export function usePracticeMode(
   const sustainBaseWallRef = useRef(0);     // performance.now() when sustain started/resumed
   const sustainBasePracticeRef = useRef(0); // practiceTime when sustain started/resumed
   const audioPlayedRef = useRef(false);     // has audio been played for the current step?
+  const skipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Keep refs in sync
   useEffect(() => { statusRef.current = status; }, [status]);
@@ -229,6 +254,24 @@ export function usePracticeMode(
   const startSustainLoopRef = useRef<() => void>(() => {});
   const goToStepRef = useRef<(idx: number) => void>(() => {});
   const checkAndResumeRef = useRef<() => void>(() => {});
+
+  /** Reset the 3-second skip-button timer (called whenever the step changes or sustaining starts) */
+  function resetSkipTimer() {
+    if (skipTimerRef.current) clearTimeout(skipTimerRef.current);
+    setShowSkipButton(false);
+  }
+
+  /** Start the 3-second skip-button timer (called when entering playing/waiting state) */
+  function startSkipTimer() {
+    resetSkipTimer();
+    skipTimerRef.current = setTimeout(() => {
+      // Only show if still stuck (not sustaining or complete)
+      const st = statusRef.current;
+      if (st === "playing" || st === "waiting") {
+        setShowSkipButton(true);
+      }
+    }, 3000);
+  }
 
   /**
    * Start the real-time sustain animation loop.
@@ -330,9 +373,11 @@ export function usePracticeMode(
     }
 
     const step = currentSteps[idx];
+    const isContinuous = practiceModeRef.current === "continuous";
+    const required = isContinuous ? step.requiredMidis : step.midis;
     practiceTimeRef.current = step.time;
     setPracticeTime(step.time);
-    setExpectedMidis(new Set(step.midis));
+    setExpectedMidis(new Set(required));
     satisfiedRef.current = new Set();
     setSatisfiedMidis(new Set());
     setWrongNote(null);
@@ -340,11 +385,12 @@ export function usePracticeMode(
 
     // Auto-continue if all expected notes are already held (continuous mode only)
     const held = heldNotesRef.current;
-    const allHeld = [...step.midis].every((m) => held.has(m));
+    const allHeld = [...required].every((m) => held.has(m));
 
-    if (practiceModeRef.current === "continuous" && allHeld) {
-      satisfiedRef.current = new Set(step.midis);
-      setSatisfiedMidis(new Set(step.midis));
+    if (isContinuous && allHeld) {
+      resetSkipTimer();
+      satisfiedRef.current = new Set(required);
+      setSatisfiedMidis(new Set(required));
       playStepAudioInline(step);
       audioPlayedRef.current = true;
       sustainBaseWallRef.current = performance.now();
@@ -355,6 +401,7 @@ export function usePracticeMode(
     } else {
       setStatus("playing");
       statusRef.current = "playing";
+      startSkipTimer();
     }
   }
 
@@ -371,13 +418,15 @@ export function usePracticeMode(
     if (idx >= currentSteps.length) return;
 
     const step = currentSteps[idx];
+    const isContinuous = practiceModeRef.current === "continuous";
+    const required = isContinuous ? step.requiredMidis : step.midis;
     const held = heldNotesRef.current;
 
     // All expected notes must be held
-    if (![...step.midis].every((m) => held.has(m))) return;
+    if (![...required].every((m) => held.has(m))) return;
 
-    satisfiedRef.current = new Set(step.midis);
-    setSatisfiedMidis(new Set(step.midis));
+    satisfiedRef.current = new Set(required);
+    setSatisfiedMidis(new Set(required));
 
     // Play audio only on first entry to this step
     if (!audioPlayedRef.current) {
@@ -394,6 +443,7 @@ export function usePracticeMode(
     }
 
     // Continuous: start the real-time sustain clock
+    resetSkipTimer();
     sustainBaseWallRef.current = performance.now();
     sustainBasePracticeRef.current = practiceTimeRef.current;
     setWrongNote(null);
@@ -439,19 +489,20 @@ export function usePracticeMode(
         if (idx >= currentSteps.length) return;
 
         const step = currentSteps[idx];
+        const required = practiceModeRef.current === "continuous" ? step.requiredMidis : step.midis;
 
         // Log the key press
         const logEntry: PracticeLogEntry = {
           stepIndex: idx,
-          expectedMidis: [...step.midis],
+          expectedMidis: [...required],
           playedMidi: midi,
-          correct: step.midis.has(midi),
+          correct: required.has(midi),
           timestamp: performance.now() - sessionStartRef.current,
         };
         sessionLogRef.current = [...sessionLogRef.current, logEntry];
         setSessionLog([...sessionLogRef.current]);
 
-        if (step.midis.has(midi)) {
+        if (required.has(midi)) {
           // ── Correct note ────────────────────────────────────────
           const newSatisfied = new Set(satisfiedRef.current);
           newSatisfied.add(midi);
@@ -496,9 +547,10 @@ export function usePracticeMode(
         if (idx >= currentSteps.length) return;
 
         const step = currentSteps[idx];
+        const required = practiceModeRef.current === "continuous" ? step.requiredMidis : step.midis;
 
-        if (statusRef.current === "sustaining" && step.midis.has(midi)) {
-          // Correct note released during sustain — pause clock
+        if (statusRef.current === "sustaining" && required.has(midi)) {
+          // Required note released during sustain — pause clock
           cancelAnimationFrame(sustainAnimRef.current);
           const frozenTime = practiceTimeRef.current;
           setPracticeTime(frozenTime);
@@ -510,7 +562,7 @@ export function usePracticeMode(
 
           setStatus("playing");
           statusRef.current = "playing";
-        } else if (step.midis.has(midi)) {
+        } else if (required.has(midi)) {
           // Correct note released while not sustaining
           const newSatisfied = new Set(satisfiedRef.current);
           newSatisfied.delete(midi);
@@ -530,6 +582,19 @@ export function usePracticeMode(
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeDevice, midiDevices]);
+
+  // ── Skip step (escape hatch) ────────────────────────────────────
+  const skipStep = useCallback(() => {
+    const idx = stepIndexRef.current;
+    const currentSteps = stepsRef.current;
+    if (idx >= currentSteps.length) return;
+
+    // Play the step audio so the user hears what it sounded like
+    playStepAudioInline(currentSteps[idx]);
+
+    resetSkipTimer();
+    goToStepRef.current(idx + 1);
+  }, []);
 
   // ── Start practice ──────────────────────────────────────────────
   const start = useCallback(() => {
@@ -563,8 +628,10 @@ export function usePracticeMode(
     setSessionLog([]);
     setError(null);
     setHeldNotes(new Set());
+    setShowSkipButton(false);
     setStatus("playing");
     statusRef.current = "playing";
+    startSkipTimer();
   }, [buildAllSteps]);
 
   // ── Reset ───────────────────────────────────────────────────────
@@ -587,13 +654,18 @@ export function usePracticeMode(
     setSessionLog([]);
     setError(null);
     setHeldNotes(new Set());
+    setShowSkipButton(false);
+    resetSkipTimer();
     setStatus("idle");
     statusRef.current = "idle";
   }, []);
 
   // ── Cleanup on unmount ──────────────────────────────────────────
   useEffect(() => {
-    return () => { cancelAnimationFrame(sustainAnimRef.current); };
+    return () => {
+      cancelAnimationFrame(sustainAnimRef.current);
+      if (skipTimerRef.current) clearTimeout(skipTimerRef.current);
+    };
   }, []);
 
   return {
@@ -612,10 +684,12 @@ export function usePracticeMode(
       isComplete: status === "complete",
       error,
       heldNotes,
+      showSkipButton,
     } satisfies PracticeModeState,
     controls: {
       start,
       reset,
+      skipStep,
       setActiveDevice,
       setPracticeMode,
     } satisfies PracticeModeControls,
