@@ -132,10 +132,46 @@ function buildPracticeSummary(args: {
   // Fix 1: use unique step count, fall back to sessionLog.length if no stepIndex present
   const attempts = uniqueSteps.size > 0 ? uniqueSteps.size : sessionLog.length;
 
-  // Fix 4 (previous): use flowingTotalNotes as denominator for flowing mode
-  const accuracyDenominator = mode === "flowing" && flowingTotalNotes > 0
-    ? flowingTotalNotes
-    : attempts;
+  // For flowing mode, compute accuracy the same way the UI display does:
+  // flowingCorrect / (flowingCorrect + flowingMissed + flowingExtra)
+  // This accounts for extra/wrong notes the student played, matching the on-screen %.
+  if (mode === "flowing") {
+    const flowingCorrect = sessionLog.filter((e: any) => e.rating && e.rating !== "miss" && e.correct).length;
+    const flowingMissed = sessionLog.filter((e: any) => e.rating === "miss").length;
+    const flowingExtra = sessionLog.filter((e: any) => e.rating === undefined && !e.correct).length;
+    const flowingEvaluated = flowingCorrect + flowingMissed + flowingExtra;
+    const accuracyPct = flowingEvaluated > 0 ? Math.round((flowingCorrect / flowingEvaluated) * 100) : 100;
+
+    const topN = (m: Map<number, number>) =>
+      [...m.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([midi, count]) => ({ midi, note: midiToNoteName(midi), count }));
+
+    const hasStepInfo = uniqueSteps.size > 0;
+    const hotspots = hasStepInfo
+      ? [...failsByStep.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([step, fails]) => ({ step, fails }))
+      : [];
+
+    return {
+      pieceTitle,
+      mode,
+      totalSteps,
+      attempts,
+      hits: flowingCorrect,
+      wrongs: flowingMissed + flowingExtra,
+      accuracyPct,
+      topWrong: topN(wrongByMidi),
+      topMissed: topN(missedByMidi),
+      hotspots,
+      playbackSpeed,
+    };
+  }
+
+  const accuracyDenominator = attempts;
   const accuracyPct = accuracyDenominator > 0 ? Math.round((hits / accuracyDenominator) * 100) : 0;
 
   const topN = (m: Map<number, number>) =>
