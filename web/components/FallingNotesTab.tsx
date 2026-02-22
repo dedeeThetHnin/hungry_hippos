@@ -323,20 +323,24 @@ export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSw
                 </button>
               </div>
             ) : (
-              <button
-                onClick={handleExportVideo}
-                className="flex items-center gap-1.5 rounded-full bg-white border border-pink-200 text-pink-400 hover:bg-pink-50 hover:text-pink-600 transition-colors px-3 py-1.5 text-xs"
-                aria-label="Export video"
-                title="Export falling notes as video"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Export Video</span>
-              </button>
-            )}
-            {isLargeFile && !isExporting && (
-              <span className="text-xs text-amber-500 max-w-[12rem] text-right leading-tight">
-                ⚠ This piece is long — export may take several minutes.
-              </span>
+              <div className="relative group">
+                <button
+                  onClick={handleExportVideo}
+                  className="flex items-center gap-1.5 rounded-full bg-white border border-pink-200 text-pink-400 hover:bg-pink-50 hover:text-pink-600 transition-colors px-3 py-1.5 text-xs"
+                  aria-label="Export video"
+                  title={isLargeFile ? undefined : "Export falling notes as video"}
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Export Video</span>
+                </button>
+                {isLargeFile && (
+                  <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block z-50">
+                    <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs px-3 py-2 whitespace-nowrap shadow-md">
+                      ⚠ This piece is long — export may take several minutes.
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
             {exportError && (
               <span className="text-xs text-red-500 text-right" title={exportError}>Export failed</span>
