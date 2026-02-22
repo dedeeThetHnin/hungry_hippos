@@ -1,26 +1,22 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useMemo, useState } from "react";
-import { Play, Pause, Square, RotateCcw, RotateCw } from "lucide-react";
+import { Play, Pause, Square, RotateCcw, RotateCw, Download, X } from "lucide-react";
 import * as Tone from "tone";
+import type { Midi } from "@tonejs/midi";
 import type {
   MidiPlayerState,
   MidiPlayerControls,
   NoteEvent,
 } from "@/lib/hooks/useMidiPlayer";
+import type { PianoPlayerFactory } from "@/lib/piano";
+import { splendidPiano } from "@/lib/piano";
 import {
   isBlackKey,
   buildKeyLayout,
-  keyPosition,
-  midiToNoteName,
-  noteColor,
-  ACTIVE_KEY_COLOR,
-  WHITE_KEY_COLOR,
-  BLACK_KEY_COLOR,
-  KEY_BORDER_COLOR,
-  CANVAS_BG,
-  HIT_LINE_COLOR,
 } from "@/lib/piano/canvas-utils";
+import { drawFallingNotesFrame } from "@/lib/piano/draw-frame";
+import { useVideoExport } from "@/lib/hooks/useVideoExport";
 
 // ── Component ─────────────────────────────────────────────────────────
 
@@ -30,24 +26,25 @@ interface FallingNotesTabProps {
   isFullscreen?: boolean;
   pianoSwitcher?: React.ReactNode;
   playbackSpeed?: number;
+  /** Required for video export – ref to the parsed Midi object */
+  midiRef?: React.RefObject<Midi | null>;
+  /** Required for video export – factory to create piano for offline audio rendering */
+  pianoFactory?: PianoPlayerFactory;
 }
 
-export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSwitcher, playbackSpeed = 1 }: FallingNotesTabProps) {
+export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSwitcher, playbackSpeed = 1, midiRef, pianoFactory = splendidPiano }: FallingNotesTabProps) {
   const { isPlaying, loadState, duration, progress } = state;
   const { togglePlayback, stopPlayback, seekTo, skip, formatTime, getAllNotes } = controls;
   const progressBarRef = useRef<HTMLDivElement | null>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
 
+  // Video export
+  const { exportVideo, exportProgress, isExporting, exportError, cancelExport } = useVideoExport();
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number>(0);
   const notesCache = useRef<NoteEvent[]>([]);
-
-  // How many seconds of upcoming notes are visible above the hit line
-  const LOOK_AHEAD = 4; // seconds visible above hit‑line
-  const KEYBOARD_HEIGHT_RATIO = 0.15; // keyboard is 15% of canvas height
-  const BLACK_KEY_HEIGHT_RATIO = 0.6; // black keys are 60% of white key height
-  const MIN_BAR_PX = 6; // minimum height so tiny notes are still visible
 
   // Determine which track is the bass track by comparing average pitch per track.
   // In typical piano MIDI files, the bass (left hand) track has lower average pitch.
@@ -172,167 +169,37 @@ export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSw
     const W = canvas.width / dpr;
     const H = canvas.height / dpr;
 
-    const kbHeight = H * KEYBOARD_HEIGHT_RATIO;
-    const playAreaHeight = H - kbHeight;
-    const hitY = playAreaHeight; // y where notes "land" on the keyboard
+    // Convert transport time to virtual (original) time
+    const currentTime = Tone.getTransport().seconds * playbackSpeed;
 
-    // Convert transport time to virtual (original) time by multiplying by speed
-    const playbackSpeedRef_local = playbackSpeed;
-    const currentTime = Tone.getTransport().seconds * playbackSpeedRef_local;
+    drawFallingNotesFrame(ctx, W, H, currentTime, {
+      notes: notesCache.current,
+      layout,
+      bassTrack,
+      duration,
+      formatTime,
+    });
+  }, [layout, bassTrack, duration, formatTime, playbackSpeed]);
 
-    // Clear
-    ctx.fillStyle = CANVAS_BG;
-    ctx.fillRect(0, 0, W, H);
+  // ── Export handler ──────────────────────────────────────────────
+  const handleExportVideo = useCallback(() => {
+    if (!layout || isExporting) return;
+    // Stop playback before exporting
+    stopPlayback();
 
-    const { lo, hi, whiteCount } = layout;
-    const whiteKeyWidth = W / whiteCount;
-
-    // Pixels per second in the falling area
-    const pxPerSec = playAreaHeight / LOOK_AHEAD;
-
-    // ── Draw falling note bars ────────────────────────────────────
-    const notes = notesCache.current;
-    // Also collect which midi keys are currently active for keyboard highlighting
-    const activeKeys = new Set<number>();
-
-    for (const note of notes) {
-      const noteEnd = note.time + note.duration;
-      // Only draw notes that are within visible time window
-      // A note is visible if its bottom edge is above the top of the canvas
-      // and its top edge is below the hit line
-      const barTopTime = note.time;
-      const barBottomTime = noteEnd;
-
-      // Convert time to Y: at currentTime, the hit-line is at hitY
-      // Notes in the future are above (smaller Y), notes in the past are below (larger Y)
-      const barTopY = hitY - (barTopTime - currentTime) * pxPerSec;
-      const barBottomY = hitY - (barBottomTime - currentTime) * pxPerSec;
-
-      // barBottomY is the top of the visual bar (earlier time = higher up)
-      // barTopY is the bottom of the visual bar (later time, so note.time is the start)
-      // Wait — let me reconsider: note.time is when the note starts, noteEnd is when it ends
-      // Start (note.time) should appear at the bottom of the bar (hitting the keyboard)
-      // End (noteEnd) should appear at the top of the bar
-      // Y position: hitY when time == currentTime, and above for future times
-      const yBottom = hitY - (note.time - currentTime) * pxPerSec;
-      const yTop = hitY - (noteEnd - currentTime) * pxPerSec;
-
-      // Cull notes fully off screen
-      if (yBottom < 0 || yTop > H) continue;
-
-      const barHeight = Math.max(MIN_BAR_PX, yBottom - yTop);
-
-      // Check if note is currently playing (for key highlighting)
-      if (currentTime >= note.time && currentTime < noteEnd) {
-        activeKeys.add(note.midi);
-      }
-
-      // Get horizontal position from keyboard layout
-      const pos = keyPosition(note.midi, lo, hi, whiteCount, W);
-
-      // Draw the bar
-      const barX = pos.x + 1; // 1px inset
-      const barW = pos.w - 2; // 2px gap between adjacent bars
-      const radius = Math.min(4, barW / 2, barHeight / 2);
-
-      // Determine bass/treble: use track info if multi-track, else pitch threshold
-      const isBass = bassTrack >= 0 ? note.track === bassTrack : note.midi < 60;
-
-      ctx.fillStyle = noteColor(isBass, 0.85);
-      ctx.beginPath();
-      ctx.roundRect(barX, yTop, barW, barHeight, radius);
-      ctx.fill();
-
-      // Glow for currently-playing notes
-      if (activeKeys.has(note.midi)) {
-        ctx.shadowColor = ACTIVE_KEY_COLOR;
-        ctx.shadowBlur = 12;
-        ctx.fillStyle = noteColor(isBass, 1);
-        ctx.beginPath();
-        ctx.roundRect(barX, yTop, barW, barHeight, radius);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-      }
-
-      // Label — only if bar is tall enough to fit text
-      if (barHeight > 14 && barW > 18) {
-        const label = midiToNoteName(note.midi);
-        ctx.fillStyle = "rgba(255,255,255,0.9)";
-        ctx.font = `bold ${Math.min(11, barW * 0.45)}px system-ui, sans-serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(label, pos.centre, yTop + barHeight / 2, barW - 4);
-      }
-    }
-
-    // ── Hit line ──────────────────────────────────────────────────
-    ctx.fillStyle = HIT_LINE_COLOR;
-    ctx.fillRect(0, hitY - 1, W, 2);
-
-    // ── Draw piano keyboard ───────────────────────────────────────
-
-    // White keys first
-    let wi = 0;
-    for (let m = lo; m <= hi; m++) {
-      if (isBlackKey(m)) continue;
-      const x = wi * whiteKeyWidth;
-      const active = activeKeys.has(m);
-
-      ctx.fillStyle = active ? ACTIVE_KEY_COLOR : WHITE_KEY_COLOR;
-      ctx.fillRect(x, hitY, whiteKeyWidth, kbHeight);
-
-      // Border
-      ctx.strokeStyle = KEY_BORDER_COLOR;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x, hitY, whiteKeyWidth, kbHeight);
-
-      // Label on white key
-      if (whiteKeyWidth > 14) {
-        const label = midiToNoteName(m);
-        ctx.fillStyle = active ? "rgba(255,255,255,0.9)" : "rgba(100,100,120,0.5)";
-        ctx.font = `${Math.min(10, whiteKeyWidth * 0.35)}px system-ui, sans-serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "bottom";
-        ctx.fillText(label, x + whiteKeyWidth / 2, hitY + kbHeight - 4, whiteKeyWidth - 2);
-      }
-
-      wi++;
-    }
-
-    // Black keys on top
-    for (let m = lo; m <= hi; m++) {
-      if (!isBlackKey(m)) continue;
-      const pos = keyPosition(m, lo, hi, whiteCount, W);
-      const bkHeight = kbHeight * BLACK_KEY_HEIGHT_RATIO;
-      const active = activeKeys.has(m);
-
-      ctx.fillStyle = active ? ACTIVE_KEY_COLOR : BLACK_KEY_COLOR;
-      ctx.beginPath();
-      ctx.roundRect(pos.x, hitY, pos.w, bkHeight, [0, 0, 3, 3]);
-      ctx.fill();
-
-      // Label on black key
-      if (pos.w > 14) {
-        const label = midiToNoteName(m);
-        ctx.fillStyle = active ? "rgba(255,255,255,0.95)" : "rgba(200,200,220,0.6)";
-        ctx.font = `${Math.min(9, pos.w * 0.38)}px system-ui, sans-serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "bottom";
-        ctx.fillText(label, pos.centre, hitY + bkHeight - 3, pos.w - 2);
-      }
-    }
-
-    // ── Progress / time overlay ──────────────────────────────────
-    ctx.fillStyle = "rgba(255,255,255,0.6)";
-    ctx.font = "12px system-ui, sans-serif";
-    ctx.textAlign = "left";
-    ctx.textBaseline = "top";
-    ctx.fillText(
-      `${formatTime(currentTime)} / ${formatTime(duration)}`,
-      8,
-      8
-    );
-  }, [layout, bassTrack, duration, formatTime, playbackSpeed, LOOK_AHEAD, KEYBOARD_HEIGHT_RATIO, BLACK_KEY_HEIGHT_RATIO, MIN_BAR_PX]);
+    exportVideo({
+      notes: notesCache.current,
+      layout,
+      bassTrack,
+      duration,
+      playbackSpeed,
+      formatTime,
+      midiRef: midiRef!,
+      pianoFactory,
+      title: state.title,
+      bpm: state.bpm,
+    });
+  }, [layout, bassTrack, duration, playbackSpeed, formatTime, midiRef, pianoFactory, isExporting, exportVideo, stopPlayback, state.title, state.bpm]);
 
   // Animation frame loop — runs whenever the component is mounted
   useEffect(() => {
@@ -455,6 +322,40 @@ export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSw
         <span className="text-xs text-slate-400 tabular-nums min-w-[4rem] text-right">
           {formatTime(progress)} / {formatTime(duration)}
         </span>
+
+        {/* Export Video button */}
+        {midiRef && (
+          isExporting ? (
+            <div className="flex items-center gap-2 ml-2">
+              <div className="flex items-center gap-1.5 rounded-full bg-pink-50 border border-pink-200 px-3 py-1.5 text-xs text-pink-600 min-w-[7rem]">
+                <Download className="w-3.5 h-3.5 animate-pulse" />
+                <span>Exporting {exportProgress ?? 0}%</span>
+              </div>
+              <button
+                onClick={cancelExport}
+                className="flex items-center justify-center w-7 h-7 rounded-full bg-white border border-pink-200 text-pink-400 hover:bg-pink-50 transition-colors"
+                aria-label="Cancel export"
+                title="Cancel export"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleExportVideo}
+              className="flex items-center gap-1.5 rounded-full bg-white border border-pink-200 text-pink-400 hover:bg-pink-50 hover:text-pink-600 transition-colors px-3 py-1.5 text-xs ml-2"
+              aria-label="Export video"
+              title="Export falling notes as video"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Export Video</span>
+            </button>
+          )
+        )}
+        {exportError && (
+          <span className="text-xs text-red-500 ml-1" title={exportError}>Export failed</span>
+        )}
+
         {pianoSwitcher && <div className="ml-1">{pianoSwitcher}</div>}
       </div>
     </div>
