@@ -76,14 +76,13 @@ type PracticeSummary = {
 function buildPracticeSummary(args: {
   sessionLog: any[];
   totalSteps: number;
+  flowingTotalNotes: number;
   pieceTitle: string;
   mode: "discrete" | "continuous" | "flowing";
   playbackSpeed: number;
 }): PracticeSummary {
-  const { sessionLog, totalSteps, pieceTitle, mode, playbackSpeed } = args;
+  const { sessionLog, totalSteps, flowingTotalNotes, pieceTitle, mode, playbackSpeed } = args;
 
-  // We keep this very defensive so it works with your existing sessionLog shape.
-  // If you later add fields like { step, expected, played, wrong, missed }, the summary gets richer.
   const wrongByMidi = new Map<number, number>();
   const missedByMidi = new Map<number, number>();
   const failsByStep = new Map<number, number>();
@@ -91,67 +90,53 @@ function buildPracticeSummary(args: {
   let hits = 0;
   let wrongs = 0;
 
+  // Fix 1: track unique steps to avoid inflating attempts on retries
+  const uniqueSteps = new Set<number>();
+
   for (const e of sessionLog) {
     const correct = !!e?.correct;
+
+    if (typeof e?.stepIndex === "number" && e.stepIndex >= 0) {
+      uniqueSteps.add(e.stepIndex);
+    }
+
     if (correct) {
       hits++;
       continue;
     }
     wrongs++;
 
-    // hotspot steps (if present)
-    if (typeof e?.stepIndex === "number") {
-      const step = e.stepIndex as number;
-      failsByStep.set(step, (failsByStep.get(step) ?? 0) + 1);
-    } else if (typeof e?.step === "number") {
-      const step = e.step as number;
-      failsByStep.set(step, (failsByStep.get(step) ?? 0) + 1);
+    // Fix 3: only populate hotspots if stepIndex is actually present
+    if (typeof e?.stepIndex === "number" && e.stepIndex >= 0) {
+      failsByStep.set(e.stepIndex, (failsByStep.get(e.stepIndex) ?? 0) + 1);
     }
 
-    // wrong notes (if present)
-    if (typeof e?.playedMidi === "number" && !correct && e.rating !== "miss") {
+    // Fix 2: use actual sessionLog field names
+    if (typeof e?.playedMidi === "number" && e.playedMidi !== 0 && e?.rating !== "miss") {
       wrongByMidi.set(e.playedMidi, (wrongByMidi.get(e.playedMidi) ?? 0) + 1);
-    } else {
-      const wrongList: number[] =
-        (Array.isArray(e?.wrong) && e.wrong) ||
-        (Array.isArray(e?.wrongMidis) && e.wrongMidis) ||
-        (Array.isArray(e?.played) && Array.isArray(e?.expected)
-          ? (e.played as number[]).filter(
-              (m) => !(e.expected as number[]).includes(m),
-            )
-          : []);
-
-      for (const w of wrongList) {
-        wrongByMidi.set(w, (wrongByMidi.get(w) ?? 0) + 1);
-      }
     }
 
-    // missed notes (if present)
     if (e?.rating === "miss" && Array.isArray(e?.expectedMidis)) {
       for (const m of e.expectedMidis) {
         missedByMidi.set(m, (missedByMidi.get(m) ?? 0) + 1);
       }
-    } else {
-      const missedList: number[] =
-        (Array.isArray(e?.missed) && e.missed) ||
-        (Array.isArray(e?.missedMidis) && e.missedMidis) ||
-        [];
-
-      for (const m of missedList) {
-        missedByMidi.set(m, (missedByMidi.get(m) ?? 0) + 1);
+    } else if (!correct && Array.isArray(e?.expectedMidis)) {
+      for (const m of e.expectedMidis) {
+        if (m !== e?.playedMidi) {
+          missedByMidi.set(m, (missedByMidi.get(m) ?? 0) + 1);
+        }
       }
     }
   }
 
-  // Count unique steps attempted rather than raw log events to avoid
-  // inflating attempts when a student retries the same step multiple times.
-  const uniqueSteps = new Set<number>();
-  for (const e of sessionLog) {
-    if (typeof e?.stepIndex === "number") uniqueSteps.add(e.stepIndex);
-    else if (typeof e?.step === "number") uniqueSteps.add(e.step);
-  }
+  // Fix 1: use unique step count, fall back to sessionLog.length if no stepIndex present
   const attempts = uniqueSteps.size > 0 ? uniqueSteps.size : sessionLog.length;
-  const accuracyPct = attempts > 0 ? Math.round((hits / attempts) * 100) : 0;
+
+  // Fix 4 (previous): use flowingTotalNotes as denominator for flowing mode
+  const accuracyDenominator = mode === "flowing" && flowingTotalNotes > 0
+    ? flowingTotalNotes
+    : attempts;
+  const accuracyPct = accuracyDenominator > 0 ? Math.round((hits / accuracyDenominator) * 100) : 0;
 
   const topN = (m: Map<number, number>) =>
     [...m.entries()]
@@ -159,9 +144,8 @@ function buildPracticeSummary(args: {
       .slice(0, 5)
       .map(([midi, count]) => ({ midi, note: midiToNoteName(midi), count }));
 
-  const hasStepInfo = sessionLog.some(
-    (e) => typeof e?.stepIndex === "number" || typeof e?.step === "number"
-  );
+  // Fix 3: only include hotspots if step data was actually present
+  const hasStepInfo = uniqueSteps.size > 0;
   const hotspots = hasStepInfo
     ? [...failsByStep.entries()]
         .sort((a, b) => b[1] - a[1])
@@ -376,6 +360,7 @@ export function PracticeTab({
       const summary = buildPracticeSummary({
         sessionLog,
         totalSteps: practiceMode === "flowing" ? flowingTotalNotes : totalSteps,
+        flowingTotalNotes,
         pieceTitle: state.title || "this piece",
         mode: practiceMode,
         playbackSpeed,
