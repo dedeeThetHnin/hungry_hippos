@@ -36,7 +36,7 @@ export default function Home() {
         {/* Hero Section */}
         <section className="flex flex-col items-center justify-center px-4 pt-24 pb-20 text-center">
           <h1 className="max-w-3xl text-4xl font-bold leading-tight tracking-tight text-sakura-text-pink sm:text-5xl md:text-6xl">
-            From Sheet Music to Piano in Seconds
+            Animated Playable Piano Tutorials in Seconds
           </h1>
           <Link
             href="/auth/sign-up"
