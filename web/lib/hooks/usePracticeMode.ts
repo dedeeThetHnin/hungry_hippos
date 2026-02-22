@@ -188,6 +188,7 @@ export function usePracticeMode(
   midiRef: React.RefObject<Midi | null>,
   pianoRef: React.RefObject<PianoPlayer | null>,
   getAllNotes: () => NoteEvent[],
+  layoutInfoRef?: React.RefObject<{ W: number; hitY: number; lo: number; hi: number; whiteCount: number } | null>
 ) {
   // ── React state (for UI rendering) ─────────────────────────────
   const [practiceMode, setPracticeModeState] = useState<PracticeMode>("flowing");
@@ -620,7 +621,7 @@ export function usePracticeMode(
    * Handle a note-on in flowing mode: find the closest unmatched reference
    * note with the same MIDI pitch within the timing window and rate it.
    */
-  function handleFlowingNoteOn(midi: number, canvasWidth: number, hitY: number, lo: number, hi: number, whiteCount: number) {
+  function handleFlowingNoteOn(midi: number) {
     const currentTime = practiceTimeRef.current;
     const allNotes = flowingAllNotesRef.current;
     const matched = flowingMatchedRef.current;
@@ -662,28 +663,31 @@ export function usePracticeMode(
       setSessionLog([...sessionLogRef.current]);
 
       // Create judgment popup
-      // Use the keyPosition helper via passed layout params
-      const whiteKeyWidth = canvasWidth / whiteCount;
-      const blackKeyWidth = whiteKeyWidth * 0.6;
-      let whiteIndex = 0;
-      for (let m = lo; m < midi; m++) {
-        if (!(new Set([1, 3, 6, 8, 10])).has(m % 12)) whiteIndex++;
-      }
-      const isBlack = new Set([1, 3, 6, 8, 10]).has(midi % 12);
-      const centreX = isBlack
-        ? whiteIndex * whiteKeyWidth - blackKeyWidth / 2 + blackKeyWidth / 2
-        : whiteIndex * whiteKeyWidth + whiteKeyWidth / 2;
+      const layout = layoutInfoRef?.current;
+      if (layout) {
+        const { W: canvasWidth, hitY, lo, hi, whiteCount } = layout;
+        const whiteKeyWidth = canvasWidth / whiteCount;
+        const blackKeyWidth = whiteKeyWidth * 0.6;
+        let whiteIndex = 0;
+        for (let m = lo; m < midi; m++) {
+          if (!(new Set([1, 3, 6, 8, 10])).has(m % 12)) whiteIndex++;
+        }
+        const isBlack = new Set([1, 3, 6, 8, 10]).has(midi % 12);
+        const centreX = isBlack
+          ? whiteIndex * whiteKeyWidth - blackKeyWidth / 2 + blackKeyWidth / 2
+          : whiteIndex * whiteKeyWidth + whiteKeyWidth / 2;
 
-      judgmentsRef.current = [
-        ...judgmentsRef.current,
-        {
-          text: ratingText(rating),
-          color: ratingColor(rating),
-          x: centreX,
-          y: hitY - 30,
-          createdAt: performance.now(),
-        },
-      ];
+        judgmentsRef.current = [
+          ...judgmentsRef.current,
+          {
+            text: ratingText(rating),
+            color: ratingColor(rating),
+            x: centreX,
+            y: hitY - 30,
+            createdAt: performance.now(),
+          },
+        ];
+      }
     } else {
       // Extra note — no matching reference note found
       const logEntry: PracticeLogEntry = {
@@ -699,10 +703,6 @@ export function usePracticeMode(
       setSessionLog([...sessionLogRef.current]);
     }
   }
-
-  // Store flowing note-on handler in a ref so MIDI listener always has current version
-  const handleFlowingNoteOnRef = useRef(handleFlowingNoteOn);
-  handleFlowingNoteOnRef.current = handleFlowingNoteOn;
 
   // ── Attach MIDI input listener ──────────────────────────────────
   useEffect(() => {
@@ -754,8 +754,7 @@ export function usePracticeMode(
             });
           }
 
-          // Pass 0s for canvas layout — will be updated by the draw loop via the ref
-          handleFlowingNoteOnRef.current(midi, 0, 0, 0, 0, 0);
+          handleFlowingNoteOn(midi);
         }
 
         if (type === 0x80 || (type === 0x90 && velocity === 0)) {
@@ -1060,8 +1059,6 @@ export function usePracticeMode(
     practiceTimeRef,
     /** Judgments ref — read by the canvas draw loop for flowing mode feedback popups */
     judgmentsRef,
-    /** Flowing mode note-on handler ref — called by canvas with layout info */
-    handleFlowingNoteOnRef,
     /** All notes ref for flowing mode */
     flowingAllNotesRef,
     /** Matched notes ref for flowing mode */

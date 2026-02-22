@@ -61,16 +61,17 @@ export function PracticeTab({
   const { formatTime, getAllNotes, stopPlayback, togglePlayback, seekTo } = controls;
   const { midiRef, pianoRef } = refs;
 
+  const layoutInfoRef = useRef<{ W: number; hitY: number; lo: number; hi: number; whiteCount: number } | null>(null);
+
   const {
     state: practiceState,
     controls: practiceControls,
     stepsRef,
     practiceTimeRef,
     judgmentsRef,
-    handleFlowingNoteOnRef,
     flowingAllNotesRef,
     flowingMatchedRef,
-  } = usePracticeMode(midiRef, pianoRef, getAllNotes);
+  } = usePracticeMode(midiRef, pianoRef, getAllNotes, layoutInfoRef);
 
   const {
     status,
@@ -239,25 +240,6 @@ export function PracticeTab({
     }
   }, [sessionLog, totalSteps, flowingTotalNotes, practiceMode, state.title]);
 
-  // ── Update flowing mode note-on handler with layout info ────────
-  // We wrap this so every note-on gets the current canvas layout
-  useEffect(() => {
-    if (!layout) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const dpr = window.devicePixelRatio || 1;
-    const W = canvas.width / dpr;
-    const H = canvas.height / dpr;
-    const kbHeight = H * KEYBOARD_HEIGHT_RATIO;
-    const hitY = H - kbHeight;
-
-    const origHandler = handleFlowingNoteOnRef.current;
-    const wrappedHandler = (midi: number, _w: number, _h: number, _lo: number, _hi: number, _wc: number) => {
-      origHandler(midi, W, hitY, layout.lo, layout.hi, layout.whiteCount);
-    };
-    handleFlowingNoteOnRef.current = wrappedHandler;
-  }, [layout, handleFlowingNoteOnRef]);
-
   // ── Render loop ─────────────────────────────────────────────────
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -272,6 +254,8 @@ export function PracticeTab({
     const kbHeight = H * KEYBOARD_HEIGHT_RATIO;
     const playAreaHeight = H - kbHeight;
     const hitY = playAreaHeight;
+
+    layoutInfoRef.current = { W, hitY, lo: layout.lo, hi: layout.hi, whiteCount: layout.whiteCount };
 
     // Use practice clock instead of Tone.Transport
     const currentTime = practiceTimeRef.current;
