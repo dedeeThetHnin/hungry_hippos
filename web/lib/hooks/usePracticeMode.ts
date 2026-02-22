@@ -37,6 +37,7 @@ export type PracticeStatus =
   | "sustaining"    // user holding correct notes, clock advancing in real-time (continuous only)
   | "waiting"       // wrong note pressed or released, waiting for correct input
   | "flowing"       // flowing mode: clock advancing in real-time automatically
+  | "paused"        // flowing mode: paused
   | "complete";     // reached the end of the piece
 
 export type PracticeMode = "discrete" | "continuous" | "flowing";
@@ -81,6 +82,7 @@ export interface PracticeModeControls {
   skipStep: () => void;
   setActiveDevice: (id: string) => void;
   setPracticeMode: (mode: PracticeMode) => void;
+  togglePause: () => void;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────
@@ -316,6 +318,7 @@ export function usePracticeMode(
   // handler, requestAnimationFrame) can call the latest version.
 
   const startSustainLoopRef = useRef<() => void>(() => {});
+  const startFlowingLoopRef = useRef<() => void>(() => {});
   const goToStepRef = useRef<(idx: number) => void>(() => {});
   const checkAndResumeRef = useRef<() => void>(() => {});
 
@@ -533,6 +536,7 @@ export function usePracticeMode(
 
   // Keep function refs current (updated every render)
   startSustainLoopRef.current = startSustainLoop;
+  startFlowingLoopRef.current = startFlowingLoop;
   goToStepRef.current = goToStep;
   checkAndResumeRef.current = checkAndResume;
 
@@ -718,7 +722,7 @@ export function usePracticeMode(
       const st = statusRef.current;
 
       // ── Flowing mode handler ──────────────────────────────────
-      if (st === "flowing") {
+      if (st === "flowing" || st === "paused") {
         const data = msg.data;
         if (!data || data.length < 3) return;
         const [s, midi, velocity] = data;
@@ -754,7 +758,9 @@ export function usePracticeMode(
             });
           }
 
-          handleFlowingNoteOn(midi);
+          if (st === "flowing") {
+            handleFlowingNoteOn(midi);
+          }
         }
 
         if (type === 0x80 || (type === 0x90 && velocity === 0)) {
@@ -902,6 +908,24 @@ export function usePracticeMode(
 
     resetSkipTimer();
     goToStepRef.current(idx + 1);
+  }, []);
+
+  // ── Toggle Pause (Flowing Mode) ─────────────────────────────────
+  const togglePause = useCallback(() => {
+    if (practiceModeRef.current !== "flowing") return;
+    
+    if (statusRef.current === "flowing") {
+      cancelAnimationFrame(flowingAnimRef.current);
+      setStatus("paused");
+      statusRef.current = "paused";
+    } else if (statusRef.current === "paused") {
+      // Resume from where we left off
+      flowingStartOffsetRef.current = practiceTimeRef.current;
+      flowingStartWallRef.current = performance.now();
+      setStatus("flowing");
+      statusRef.current = "flowing";
+      startFlowingLoopRef.current();
+    }
   }, []);
 
   // ── Start practice ──────────────────────────────────────────────
@@ -1053,6 +1077,7 @@ export function usePracticeMode(
       skipStep,
       setActiveDevice,
       setPracticeMode,
+      togglePause,
     } satisfies PracticeModeControls,
     stepsRef,
     /** Real-time practice clock ref — read by the canvas draw loop for smooth animation */
