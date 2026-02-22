@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { Midi } from "@tonejs/midi";
 import { X } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -201,7 +202,7 @@ export default function PracticeModal({ score, onClose }: { score: Score; onClos
       });
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
-      setFeedback(data.content?.map((b: { text: string }) => b.text).join("") ?? "");
+      setFeedback((data.text ?? "").trim() || "No feedback returned.");
       setStatus("done");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Unknown error");
@@ -325,8 +326,8 @@ export default function PracticeModal({ score, onClose }: { score: Score; onClos
 
             {/* Feedback */}
             {feedback && (
-              <div className="mt-5 p-5 rounded-2xl bg-pink-50/60 border border-pink-100 text-sakura-dark/80 text-sm leading-relaxed whitespace-pre-wrap">
-                {feedback}
+              <div className="mt-5 p-5 rounded-2xl bg-pink-50/60 border border-pink-100 text-sakura-dark/80 text-sm leading-relaxed prose prose-sm max-w-none">
+                <ReactMarkdown>{feedback}</ReactMarkdown>
               </div>
             )}
           </>

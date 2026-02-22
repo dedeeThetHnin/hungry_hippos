@@ -187,7 +187,7 @@ export function usePianoCoach({ onFeedback } = {}) {
       });
       if (!response.ok) throw new Error(`API error ${response.status}`);
       const data = await response.json();
-      const text = data.content?.map((b) => b.text).join("") ?? "";
+      const text = (data.text ?? "").trim();
       setFeedback(text); setStatus("done");
       onFeedback?.(text, comparison);
     } catch (err) { setError(err.message); setStatus("error"); }

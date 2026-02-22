@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback, useMemo, useState } from "react";
 import { Play, Pause, RotateCcw, Sparkles, Loader2, ChevronDown, ChevronUp, SkipForward } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import type {
   MidiPlayerState,
   MidiPlayerControls,
@@ -9,7 +10,9 @@ import type {
   NoteEvent,
 } from "@/lib/hooks/useMidiPlayer";
 import { usePracticeMode } from "@/lib/hooks/usePracticeMode";
-import { buildPracticePrompt } from "@/lib/piano/midi-helpers";
+// NOTE: keep your existing import — we won’t change practice logic.
+// If you still want to use it elsewhere, leave it.
+// import { buildPracticePrompt } from "@/lib/piano/midi-helpers";
 import type { FlowingJudgment } from "@/lib/piano/midi-helpers";
 import {
   isBlackKey,
@@ -46,6 +49,123 @@ interface PracticeTabProps {
   refs: MidiPlayerRefs;
   isFullscreen?: boolean;
   pianoSwitcher?: React.ReactNode;
+}
+
+// ── In-memory summary (no DB) ─────────────────────────────────────────
+// This does NOT change your practice logic at all — it only summarizes
+// whatever is already in `sessionLog` for Gemini.
+type PracticeSummary = {
+  pieceTitle: string;
+  mode: "discrete" | "continuous" | "flowing";
+  totalSteps: number;
+
+  attempts: number;
+  hits: number;
+  wrongs: number;
+  accuracyPct: number;
+
+  // If your sessionLog includes per-event info, we’ll pick it up.
+  // Otherwise these will just be empty arrays.
+  topWrong: { midi: number; note: string; count: number }[];
+  topMissed: { midi: number; note: string; count: number }[];
+  hotspots: { step: number; fails: number }[];
+};
+
+function buildPracticeSummary(args: {
+  sessionLog: any[];
+  totalSteps: number;
+  pieceTitle: string;
+  mode: "discrete" | "continuous" | "flowing";
+}): PracticeSummary {
+  const { sessionLog, totalSteps, pieceTitle, mode } = args;
+
+  // We keep this very defensive so it works with your existing sessionLog shape.
+  // If you later add fields like { step, expected, played, wrong, missed }, the summary gets richer.
+  const wrongByMidi = new Map<number, number>();
+  const missedByMidi = new Map<number, number>();
+  const failsByStep = new Map<number, number>();
+
+  let hits = 0;
+  let wrongs = 0;
+
+  for (const e of sessionLog) {
+    const correct = !!e?.correct;
+    if (correct) {
+      hits++;
+      continue;
+    }
+    wrongs++;
+
+    // hotspot steps (if present)
+    if (typeof e?.stepIndex === "number") {
+      const step = e.stepIndex as number;
+      failsByStep.set(step, (failsByStep.get(step) ?? 0) + 1);
+    } else if (typeof e?.step === "number") {
+      const step = e.step as number;
+      failsByStep.set(step, (failsByStep.get(step) ?? 0) + 1);
+    }
+
+    // wrong notes (if present)
+    if (typeof e?.playedMidi === "number" && !correct && e.rating !== "miss") {
+      wrongByMidi.set(e.playedMidi, (wrongByMidi.get(e.playedMidi) ?? 0) + 1);
+    } else {
+      const wrongList: number[] =
+        (Array.isArray(e?.wrong) && e.wrong) ||
+        (Array.isArray(e?.wrongMidis) && e.wrongMidis) ||
+        (Array.isArray(e?.played) && Array.isArray(e?.expected)
+          ? (e.played as number[]).filter(
+              (m) => !(e.expected as number[]).includes(m),
+            )
+          : []);
+
+      for (const w of wrongList) {
+        wrongByMidi.set(w, (wrongByMidi.get(w) ?? 0) + 1);
+      }
+    }
+
+    // missed notes (if present)
+    if (e?.rating === "miss" && Array.isArray(e?.expectedMidis)) {
+      for (const m of e.expectedMidis) {
+        missedByMidi.set(m, (missedByMidi.get(m) ?? 0) + 1);
+      }
+    } else {
+      const missedList: number[] =
+        (Array.isArray(e?.missed) && e.missed) ||
+        (Array.isArray(e?.missedMidis) && e.missedMidis) ||
+        [];
+
+      for (const m of missedList) {
+        missedByMidi.set(m, (missedByMidi.get(m) ?? 0) + 1);
+      }
+    }
+  }
+
+  const attempts = sessionLog.length;
+  const accuracyPct = attempts > 0 ? Math.round((hits / attempts) * 100) : 0;
+
+  const topN = (m: Map<number, number>) =>
+    [...m.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([midi, count]) => ({ midi, note: midiToNoteName(midi), count }));
+
+  const hotspots = [...failsByStep.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([step, fails]) => ({ step, fails }));
+
+  return {
+    pieceTitle,
+    mode,
+    totalSteps,
+    attempts,
+    hits,
+    wrongs,
+    accuracyPct,
+    topWrong: topN(wrongByMidi),
+    topMissed: topN(missedByMidi),
+    hotspots,
+  };
 }
 
 // ── Component ─────────────────────────────────────────────────────────
@@ -94,7 +214,7 @@ export function PracticeTab({
 
   const { start, reset, skipStep, setActiveDevice, setPracticeMode, togglePause } = practiceControls;
 
-  // ── AI Feedback state ───────────────────────────────────────────
+  // ── AI Feedback state (added; does not affect practice logic) ───────
   const [feedbackText, setFeedbackText] = useState<string | null>(null);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
@@ -122,7 +242,10 @@ export function PracticeTab({
     let lowestTrack = -1;
     for (const [track, { sum, count }] of trackPitchSums) {
       const avg = sum / count;
-      if (avg < lowestAvg) { lowestAvg = avg; lowestTrack = track; }
+      if (avg < lowestAvg) {
+        lowestAvg = avg;
+        lowestTrack = track;
+      }
     }
     return lowestTrack;
   }, [getAllNotes]);
@@ -147,16 +270,24 @@ export function PracticeTab({
   }, [getAllNotes]);
 
   const expectedMidisRef = useRef(expectedMidis);
-  useEffect(() => { expectedMidisRef.current = expectedMidis; }, [expectedMidis]);
+  useEffect(() => {
+    expectedMidisRef.current = expectedMidis;
+  }, [expectedMidis]);
 
   const satisfiedMidisRef = useRef(satisfiedMidis);
-  useEffect(() => { satisfiedMidisRef.current = satisfiedMidis; }, [satisfiedMidis]);
+  useEffect(() => {
+    satisfiedMidisRef.current = satisfiedMidis;
+  }, [satisfiedMidis]);
 
   const wrongNoteRef = useRef(wrongNote);
-  useEffect(() => { wrongNoteRef.current = wrongNote; }, [wrongNote]);
+  useEffect(() => {
+    wrongNoteRef.current = wrongNote;
+  }, [wrongNote]);
 
   const statusRef = useRef(status);
-  useEffect(() => { statusRef.current = status; }, [status]);
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   const heldNotesRef = useRef(heldNotes);
   useEffect(() => { heldNotesRef.current = heldNotes; }, [heldNotes]);
@@ -203,6 +334,11 @@ export function PracticeTab({
         seekTo(startOffset);
       }
     }
+
+    // Feedback UI reset (does not affect practice logic)
+    setFeedbackText(null);
+    setFeedbackError(null);
+    setShowFeedback(false);
   }, [stopPlayback, start, practiceMode, togglePlayback, getAllNotes, seekTo]);
 
   // ── Stop audio when resetting ───────────────────────────────────
@@ -211,27 +347,31 @@ export function PracticeTab({
     stopPlayback();
   }, [reset, stopPlayback]);
 
-  // ── AI Feedback ─────────────────────────────────────────────────
+  // ── AI Feedback (added; does not affect practice logic) ──────────
   const getFeedback = useCallback(async () => {
     if (sessionLog.length === 0) return;
+
     setFeedbackLoading(true);
     setFeedbackError(null);
+
     try {
-      const totalForPrompt = practiceMode === "flowing" ? flowingTotalNotes : totalSteps;
-      const prompt = buildPracticePrompt(
+      const summary = buildPracticeSummary({
         sessionLog,
-        totalForPrompt,
-        state.title || "this piece",
-      );
+        totalSteps,
+        pieceTitle: state.title || "this piece",
+        mode: practiceMode,
+      });
       const res = await fetch("/api/piano-feedback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ summary }),
       });
+
       if (!res.ok) throw new Error(`API error ${res.status}`);
-      const data = await res.json();
-      const text = data.content?.map((b: { text: string }) => b.text).join("") ?? "";
-      setFeedbackText(text);
+
+      const data: { text?: string } = await res.json();
+      const text = (data.text ?? "").trim();
+      setFeedbackText(text || "No feedback returned.");
       setShowFeedback(true);
     } catch (e: unknown) {
       setFeedbackError(e instanceof Error ? e.message : "Unknown error");
@@ -313,7 +453,9 @@ export function PracticeTab({
 
       // Glow for active/expected notes
       if (activeKeys.has(note.midi) || isExpectedNote) {
-        ctx.shadowColor = isExpectedNote ? EXPECTED_KEY_COLOR : ACTIVE_KEY_COLOR;
+        ctx.shadowColor = isExpectedNote
+          ? EXPECTED_KEY_COLOR
+          : ACTIVE_KEY_COLOR;
         ctx.shadowBlur = isExpectedNote ? 16 : 12;
         ctx.fillStyle = noteColor(isBass, 1);
         ctx.beginPath();
@@ -381,11 +523,18 @@ export function PracticeTab({
       if (whiteKeyWidth > 14) {
         const label = midiToNoteName(m);
         const isHighlighted = keyColor !== WHITE_KEY_COLOR;
-        ctx.fillStyle = isHighlighted ? "rgba(255,255,255,0.9)" : "rgba(100,100,120,0.5)";
+        ctx.fillStyle = isHighlighted
+          ? "rgba(255,255,255,0.9)"
+          : "rgba(100,100,120,0.5)";
         ctx.font = `${Math.min(10, whiteKeyWidth * 0.35)}px system-ui, sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "bottom";
-        ctx.fillText(label, x + whiteKeyWidth / 2, hitY + kbHeight - 4, whiteKeyWidth - 2);
+        ctx.fillText(
+          label,
+          x + whiteKeyWidth / 2,
+          hitY + kbHeight - 4,
+          whiteKeyWidth - 2,
+        );
       }
       wi++;
     }
@@ -425,7 +574,9 @@ export function PracticeTab({
       if (pos.w > 14) {
         const label = midiToNoteName(m);
         const isHighlighted = keyColor !== BLACK_KEY_COLOR;
-        ctx.fillStyle = isHighlighted ? "rgba(255,255,255,0.95)" : "rgba(200,200,220,0.6)";
+        ctx.fillStyle = isHighlighted
+          ? "rgba(255,255,255,0.95)"
+          : "rgba(200,200,220,0.6)";
         ctx.font = `${Math.min(9, pos.w * 0.38)}px system-ui, sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "bottom";
@@ -524,12 +675,8 @@ export function PracticeTab({
     ctx.font = "12px system-ui, sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    ctx.fillText(
-      `${formatTime(currentTime)} / ${formatTime(duration)}`,
-      8,
-      8,
-    );
-  }, [layout, bassTrack, duration, formatTime]);
+    ctx.fillText(`${formatTime(currentTime)} / ${formatTime(duration)}`, 8, 8);
+  }, [layout, bassTrack, duration, formatTime, practiceTimeRef]);
 
   // ── Animation frame loop ────────────────────────────────────────
   useEffect(() => {
@@ -569,7 +716,10 @@ export function PracticeTab({
   const progressPct = totalSteps > 0 ? Math.round((currentStepIndex / totalSteps) * 100) : 0;
   const correctCount = sessionLog.filter((e) => e.correct).length;
   const wrongCount = sessionLog.filter((e) => !e.correct).length;
-  const accuracy = sessionLog.length > 0 ? Math.round((correctCount / sessionLog.length) * 100) : 0;
+  const accuracy =
+    sessionLog.length > 0
+      ? Math.round((correctCount / sessionLog.length) * 100)
+      : 0;
 
   return (
     <div
@@ -706,7 +856,8 @@ export function PracticeTab({
         {/* Progress — discrete/continuous */}
         {!isFlowingMode && status !== "idle" && (
           <span className="text-xs text-slate-400 tabular-nums">
-            Step {Math.min(currentStepIndex + 1, totalSteps)}/{totalSteps} ({progressPct}%)
+            Step {Math.min(currentStepIndex + 1, totalSteps)}/{totalSteps} (
+            {progressPct}%)
           </span>
         )}
 
@@ -739,7 +890,7 @@ export function PracticeTab({
           </span>
         )}
 
-        {/* AI Feedback button */}
+        {/* AI Feedback button (added) */}
         {sessionLog.length > 0 && (
           <button
             onClick={getFeedback}
@@ -770,7 +921,7 @@ export function PracticeTab({
         </div>
       )}
 
-      {/* AI Feedback panel */}
+      {/* AI Feedback panel (added) */}
       {(feedbackText || feedbackError) && (
         <div className="rounded-2xl border border-pink-100 bg-pink-50/60 overflow-hidden">
           <button
@@ -781,16 +932,21 @@ export function PracticeTab({
               <Sparkles className="w-4 h-4" />
               AI Feedback
             </span>
-            {showFeedback ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            {showFeedback ? (
+              <ChevronUp className="w-4 h-4" />
+            ) : (
+              <ChevronDown className="w-4 h-4" />
+            )}
           </button>
+
           {showFeedback && (
             <div className="px-5 pb-4">
               {feedbackError ? (
                 <p className="text-red-500 text-sm">⚠ {feedbackError}</p>
               ) : (
-                <p className="text-[#2D3142]/80 text-sm leading-relaxed whitespace-pre-wrap">
-                  {feedbackText}
-                </p>
+                <div className="text-[#2D3142]/80 text-sm leading-relaxed prose prose-sm max-w-none">
+                  <ReactMarkdown>{feedbackText ?? ""}</ReactMarkdown>
+                </div>
               )}
             </div>
           )}
