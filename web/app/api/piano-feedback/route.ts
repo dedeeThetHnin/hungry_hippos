@@ -28,10 +28,20 @@ function describeSummary(s: PracticeSummary): string {
   lines.push(`Practice mode: ${s.mode}`);
   lines.push(`Playback speed: ${s.playbackSpeed}x`);
   lines.push(`The piece has ${s.totalSteps} note steps in total.`);
-  lines.push(
-    `In this single practice run the student was evaluated on ${s.attempts} individual note events: ` +
-    `${s.hits} correct, ${s.wrongs} incorrect (${s.accuracyPct}% accuracy).`,
-  );
+
+  if (s.mode === "flowing") {
+    // In flowing mode, attempts = total notes in the piece, hits = correctly matched notes
+    lines.push(
+      `This was a flowing (play-along) session. The piece contained ${s.totalSteps} notes. ` +
+      `The student matched ${s.hits} notes correctly, missed ${s.topMissed.reduce((a, n) => a + n.count, 0)} notes, ` +
+      `and hit ${s.topWrong.reduce((a, n) => a + n.count, 0)} wrong notes (${s.accuracyPct}% accuracy).`
+    );
+  } else {
+    lines.push(
+      `The student was evaluated on ${s.attempts} individual note steps: ` +
+      `${s.hits} correct, ${s.wrongs} incorrect (${s.accuracyPct}% accuracy).`
+    );
+  }
 
   if (s.topWrong.length > 0) {
     lines.push(
@@ -52,7 +62,7 @@ function describeSummary(s: PracticeSummary): string {
       `Hardest spots in the piece (step number → fail count): ` +
       s.hotspots.map((h) => `step ${h.step} (${h.fails} fails)`).join(", ") + ".",
     );
-    lines.push(`(Note: A "step" is a specific chord or note grouping in the sequence of the song. Step 0 is the beginning, higher numbers are further into the song.)`);
+    lines.push(`(Note: Steps represent positions in the song — step 0 is the very beginning, and higher step numbers are further into the piece. If there are ${s.totalSteps} total steps, a hotspot at step ${Math.round(s.totalSteps / 2)} would be roughly halfway through.)`);
   }
 
   return lines.join("\n");
