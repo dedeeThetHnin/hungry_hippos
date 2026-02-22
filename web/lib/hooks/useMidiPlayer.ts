@@ -31,6 +31,7 @@ export interface MidiPlayerState {
   activeNotes: string[];
   keySignature: string;
   timeSignature: string;
+  playbackSpeed: number;
 }
 
 export interface MidiPlayerControls {
@@ -40,6 +41,7 @@ export interface MidiPlayerControls {
   skip: (seconds: number) => void;
   formatTime: (seconds: number) => string;
   getAllNotes: () => NoteEvent[];
+  setPlaybackSpeed: (speed: number) => void;
 }
 
 export interface MidiPlayerRefs {
@@ -66,9 +68,12 @@ export function useMidiPlayer(
   const [midiLoaded, setMidiLoaded] = useState(false);
   const [keySignature, setKeySignature] = useState("");
   const [timeSignature, setTimeSignature] = useState("");
+  const [playbackSpeed, setPlaybackSpeedState] = useState(1);
 
   const pianoRef = useRef<PianoPlayer | null>(null);
   const disposedRef = useRef(false);
+  const playbackSpeedRef = useRef(1);
+
   const partsRef = useRef<Tone.Part[]>([]);
   const progressInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const midiRef = useRef<Midi | null>(null);
@@ -221,7 +226,7 @@ export function useMidiPlayer(
     if (progressInterval.current) clearInterval(progressInterval.current);
     progressInterval.current = setInterval(() => {
       const transport = Tone.getTransport();
-      setProgress(transport.seconds);
+      setProgress(transport.seconds * playbackSpeedRef.current);
     }, 100);
   }
 
@@ -234,6 +239,7 @@ export function useMidiPlayer(
     const piano = pianoRef.current;
     if (!midi || !piano) return;
 
+    const speed = playbackSpeedRef.current;
     const transport = Tone.getTransport();
     transport.cancel();
     partsRef.current.forEach((p) => p.dispose());
@@ -243,7 +249,7 @@ export function useMidiPlayer(
       if (track.notes.length === 0) return;
 
       const part = new Tone.Part(
-        (t, note: { name: string; duration: number; velocity: number }) => {
+        (t, note: { name: string; duration: number; velocity: number; originalDuration: number }) => {
           if (disposedRef.current) return;
           piano.start({
             note: note.name,
@@ -254,12 +260,13 @@ export function useMidiPlayer(
           setActiveNotes((prev) => [...new Set([...prev, note.name])]);
           setTimeout(() => {
             setActiveNotes((prev) => prev.filter((n) => n !== note.name));
-          }, note.duration * 1000);
+          }, note.originalDuration * 1000 / speed);
         },
         track.notes.map((n) => ({
-          time: n.time,
+          time: n.time / speed,
           name: n.name,
-          duration: n.duration,
+          duration: n.duration / speed,
+          originalDuration: n.duration,
           velocity: n.velocity,
         }))
       );
@@ -270,7 +277,7 @@ export function useMidiPlayer(
 
     transport.schedule(() => {
       stopPlayback();
-    }, duration + 1);
+    }, duration / speed + 1);
   }
 
   const seekTo = useCallback(
@@ -285,7 +292,7 @@ export function useMidiPlayer(
 
       transport.pause();
       rescheduleFrom(clamped);
-      transport.seconds = clamped;
+      transport.seconds = clamped / playbackSpeedRef.current;
       setProgress(clamped);
 
       if (wasPlaying) {
@@ -300,8 +307,8 @@ export function useMidiPlayer(
   const skip = useCallback(
     (seconds: number) => {
       const transport = Tone.getTransport();
-      const newTime = transport.seconds + seconds;
-      seekTo(newTime);
+      const virtualTime = transport.seconds * playbackSpeedRef.current;
+      seekTo(virtualTime + seconds);
     },
     [seekTo]
   );
@@ -337,11 +344,13 @@ export function useMidiPlayer(
     partsRef.current = [];
     transport.position = 0;
 
+    const speed = playbackSpeedRef.current;
+
     midi.tracks.forEach((track) => {
       if (track.notes.length === 0) return;
 
       const part = new Tone.Part(
-        (time, note: { name: string; duration: number; velocity: number }) => {
+        (time, note: { name: string; duration: number; velocity: number; originalDuration: number }) => {
           if (disposedRef.current) return;
           piano.start({
             note: note.name,
@@ -352,12 +361,13 @@ export function useMidiPlayer(
           setActiveNotes((prev) => [...new Set([...prev, note.name])]);
           setTimeout(() => {
             setActiveNotes((prev) => prev.filter((n) => n !== note.name));
-          }, note.duration * 1000);
+          }, note.originalDuration * 1000 / speed);
         },
         track.notes.map((n) => ({
-          time: n.time,
+          time: n.time / speed,
           name: n.name,
-          duration: n.duration,
+          duration: n.duration / speed,
+          originalDuration: n.duration,
           velocity: n.velocity,
         }))
       );
@@ -368,7 +378,7 @@ export function useMidiPlayer(
 
     transport.schedule(() => {
       stopPlayback();
-    }, duration + 1);
+    }, duration / speed + 1);
 
     transport.start();
     setIsPlaying(true);
@@ -380,6 +390,29 @@ export function useMidiPlayer(
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
     return `${m}:${s.toString().padStart(2, "0")}`;
+  }, []);
+
+  const setPlaybackSpeed = useCallback((speed: number) => {
+    const clamped = Math.max(0.01, speed);
+    const oldSpeed = playbackSpeedRef.current;
+    playbackSpeedRef.current = clamped;
+    setPlaybackSpeedState(clamped);
+
+    // If currently playing, reschedule notes at new speed
+    const transport = Tone.getTransport();
+    if (transport.state === "started") {
+      // Convert current transport position back to virtual (original) time
+      const virtualTime = transport.seconds * oldSpeed;
+      pianoRef.current?.stop();
+      setActiveNotes([]);
+      transport.pause();
+      rescheduleFrom(virtualTime);
+      transport.seconds = virtualTime / clamped;
+      setProgress(virtualTime);
+      transport.start();
+      startProgressTracking();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const getAllNotes = useCallback((): NoteEvent[] => {
@@ -415,6 +448,7 @@ export function useMidiPlayer(
       activeNotes,
       keySignature,
       timeSignature,
+      playbackSpeed,
     },
     controls: {
       togglePlayback,
@@ -423,6 +457,7 @@ export function useMidiPlayer(
       skip,
       formatTime,
       getAllNotes,
+      setPlaybackSpeed,
     },
     refs: {
       midiRef,

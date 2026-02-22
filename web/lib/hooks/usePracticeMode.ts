@@ -190,8 +190,12 @@ export function usePracticeMode(
   midiRef: React.RefObject<Midi | null>,
   pianoRef: React.RefObject<PianoPlayer | null>,
   getAllNotes: () => NoteEvent[],
-  layoutInfoRef?: React.RefObject<{ W: number; hitY: number; lo: number; hi: number; whiteCount: number } | null>
+  layoutInfoRef?: React.RefObject<{ W: number; hitY: number; lo: number; hi: number; whiteCount: number } | null>,
+  playbackSpeed: number = 1,
 ) {
+  // Keep a ref so animation callbacks always get the latest value
+  const playbackSpeedRef = useRef(playbackSpeed);
+  playbackSpeedRef.current = playbackSpeed;
   // ── React state (for UI rendering) ─────────────────────────────
   const [practiceMode, setPracticeModeState] = useState<PracticeMode>("flowing");
   const [status, setStatus] = useState<PracticeStatus>("idle");
@@ -353,7 +357,7 @@ export function usePracticeMode(
       if (statusRef.current !== "sustaining") return;
 
       const now = performance.now();
-      const elapsed = (now - sustainBaseWallRef.current) / 1000;
+      const elapsed = ((now - sustainBaseWallRef.current) * playbackSpeedRef.current) / 1000;
       const newTime = sustainBasePracticeRef.current + elapsed;
 
       const currentSteps = stepsRef.current;
@@ -549,7 +553,7 @@ export function usePracticeMode(
       if (statusRef.current !== "flowing") return;
 
       const now = performance.now();
-      const elapsed = (now - flowingStartWallRef.current) / 1000;
+      const elapsed = ((now - flowingStartWallRef.current) * playbackSpeedRef.current) / 1000;
       const newTime = flowingStartOffsetRef.current + elapsed;
 
       practiceTimeRef.current = newTime;

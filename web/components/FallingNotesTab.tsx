@@ -29,9 +29,10 @@ interface FallingNotesTabProps {
   controls: MidiPlayerControls;
   isFullscreen?: boolean;
   pianoSwitcher?: React.ReactNode;
+  playbackSpeed?: number;
 }
 
-export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSwitcher }: FallingNotesTabProps) {
+export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSwitcher, playbackSpeed = 1 }: FallingNotesTabProps) {
   const { isPlaying, loadState, duration, progress } = state;
   const { togglePlayback, stopPlayback, seekTo, skip, formatTime, getAllNotes } = controls;
   const progressBarRef = useRef<HTMLDivElement | null>(null);
@@ -175,7 +176,9 @@ export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSw
     const playAreaHeight = H - kbHeight;
     const hitY = playAreaHeight; // y where notes "land" on the keyboard
 
-    const currentTime = Tone.getTransport().seconds;
+    // Convert transport time to virtual (original) time by multiplying by speed
+    const playbackSpeedRef_local = playbackSpeed;
+    const currentTime = Tone.getTransport().seconds * playbackSpeedRef_local;
 
     // Clear
     ctx.fillStyle = CANVAS_BG;
@@ -329,7 +332,7 @@ export function FallingNotesTab({ state, controls, isFullscreen = false, pianoSw
       8,
       8
     );
-  }, [layout, bassTrack, duration, formatTime, LOOK_AHEAD, KEYBOARD_HEIGHT_RATIO, BLACK_KEY_HEIGHT_RATIO, MIN_BAR_PX]);
+  }, [layout, bassTrack, duration, formatTime, playbackSpeed, LOOK_AHEAD, KEYBOARD_HEIGHT_RATIO, BLACK_KEY_HEIGHT_RATIO, MIN_BAR_PX]);
 
   // Animation frame loop — runs whenever the component is mounted
   useEffect(() => {
